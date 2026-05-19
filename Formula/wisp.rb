@@ -4,6 +4,7 @@ class Wisp < Formula
   url "https://github.com/Noswad123/wisp/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "945f17ad2cbbc12f1b2d512a3ce34bc4ce79cd57b7e9835ff5b2754cbd9d811c"
   license "MIT"
+  head "https://github.com/Noswad123/wisp.git", branch: "main"
 
   def install
     bin.install "bin/wisp"
