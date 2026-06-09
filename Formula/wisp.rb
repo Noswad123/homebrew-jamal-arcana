@@ -1,8 +1,8 @@
 class Wisp < Formula
   desc "Open commands in floating kitty terminal windows"
   homepage "https://github.com/Noswad123/wisp"
-  url "https://github.com/Noswad123/wisp/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "945f17ad2cbbc12f1b2d512a3ce34bc4ce79cd57b7e9835ff5b2754cbd9d811c"
+  url "https://github.com/Noswad123/wisp/archive/refs/tags/v0.1.1.tar.gz"
+  sha256 "4cee5f59246a661824179753e8c990ebca4b0c03d68d8dd46cab46bd2ce8d2d1"
   license "MIT"
   head "https://github.com/Noswad123/wisp.git", branch: "main"
 
