@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+"""Release Jamal Arcana tools and update this Homebrew tap.
+
+Default mode executes the release workflow. Pass --dry-run to preview planned
+tags, pushes, formula updates, and tap changes without mutating anything.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import re
+import subprocess
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
+
+
+SEMVER_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+
+
+@dataclass(frozen=True)
+class Formula:
+    stem: str
+    path: Path
+    repo_slug: str
+    repo_name: str
+    current_version: str
+
+
+def log(message: str) -> None:
+    print(message, flush=True)
+
+
+def run(
+    args: list[str],
+    *,
+    cwd: Path | None = None,
+    capture: bool = False,
+    dry_run: bool = False,
+    mutates: bool = False,
+) -> str:
+    display_cwd = f" ({cwd})" if cwd else ""
+    prefix = "DRY-RUN " if dry_run and mutates else ""
+    log(f"{prefix}$ {' '.join(args)}{display_cwd}")
+
+    if dry_run and mutates:
+        return ""
+
+    completed = subprocess.run(
+        args,
+        cwd=str(cwd) if cwd else None,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.PIPE if capture else None,
+    )
+    return completed.stdout.strip() if capture else ""
+
+
+def git(repo: Path, args: list[str], *, capture: bool = False, dry_run: bool = False, mutates: bool = False) -> str:
+    return run(["git", *args], cwd=repo, capture=capture, dry_run=dry_run, mutates=mutates)
+
+
+def parse_version(version: str) -> tuple[int, int, int]:
+    match = SEMVER_RE.match(version)
+    if not match:
+        raise ValueError(f"unsupported version: {version}")
+    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
+
+
+def bump_version(version: str, part: str) -> str:
+    major, minor, patch = parse_version(version)
+    if part == "major":
+        return f"{major + 1}.0.0"
+    if part == "minor":
+        return f"{major}.{minor + 1}.0"
+    if part == "patch":
+        return f"{major}.{minor}.{patch + 1}"
+    raise ValueError(f"unsupported bump part: {part}")
+
+
+def latest_repo_version(repo: Path) -> str | None:
+    tags = git(repo, ["tag", "--list", "v[0-9]*.[0-9]*.[0-9]*", "--sort=-v:refname"], capture=True)
+    for tag in tags.splitlines():
+        match = SEMVER_RE.match(tag.strip())
+        if match:
+            return ".".join(match.groups())
+    return None
+
+
+def formula_repo_slug(text: str) -> str:
+    for pattern in (
+        r'homepage\s+"https://github\.com/([^/"\s]+/[^/"\s]+)"',
+        r'head\s+"https://github\.com/([^/"\s]+/[^"\s]+?)(?:\.git)?"',
+        r'url\s+"https://github\.com/([^/"\s]+/[^/"\s]+)(?:/archive|\.git)',
+    ):
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1).removesuffix(".git")
+    raise ValueError("could not infer GitHub repo from formula")
+
+
+def formula_version(text: str, repo: Path | None) -> str:
+    for pattern in (
+        r'archive/refs/tags/v?(\d+\.\d+\.\d+)\.tar\.gz',
+        r'version\s+"(\d+\.\d+\.\d+)(?:-[^"]+)?"',
+    ):
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1)
+
+    if repo and repo.is_dir():
+        version = latest_repo_version(repo)
+        if version:
+            return version
+
+    return "0.0.0"
+
+
+def load_formula(path: Path, projects_dir: Path) -> Formula:
+    text = path.read_text()
+    repo_slug = formula_repo_slug(text)
+    repo_name = repo_slug.split("/", 1)[1]
+    repo = projects_dir / repo_name
+    return Formula(
+        stem=path.stem,
+        path=path,
+        repo_slug=repo_slug,
+        repo_name=repo_name,
+        current_version=formula_version(text, repo if repo.is_dir() else None),
+    )
+
+
+def selected_formulae(formulae: list[Formula], requested: list[str]) -> list[Formula]:
+    if not requested:
+        return formulae
+
+    selected: list[Formula] = []
+    wanted = {item.strip().lower() for raw in requested for item in raw.split(",") if item.strip()}
+    matched: set[str] = set()
+
+    for formula in formulae:
+        aliases = {formula.stem.lower(), formula.repo_name.lower()}
+        if aliases & wanted:
+            selected.append(formula)
+            matched.update(aliases & wanted)
+
+    missing = wanted - matched
+    if missing:
+        raise SystemExit(f"unknown tool(s): {', '.join(sorted(missing))}")
+    return selected
+
+
+def ensure_clean(repo: Path, label: str, *, allow_dirty: bool) -> None:
+    status = git(repo, ["status", "--porcelain"], capture=True)
+    if not status:
+        return
+    if allow_dirty:
+        log(f"WARNING: {label} has uncommitted changes; continuing because --allow-dirty was set")
+        return
+    raise SystemExit(f"{label} has uncommitted changes; commit/stash them or use --allow-dirty\n{status}")
+
+
+def tag_exists(repo: Path, remote: str, tag: str) -> bool:
+    local = git(repo, ["tag", "--list", tag], capture=True)
+    remote_ref = git(repo, ["ls-remote", "--tags", remote, f"refs/tags/{tag}"], capture=True)
+    return bool(local.strip() or remote_ref.strip())
+
+
+def run_project_tests(repo: Path, *, dry_run: bool) -> None:
+    smoke_test = repo / "scripts" / "smoke-test"
+    if smoke_test.exists():
+        run([str(smoke_test)], cwd=repo, dry_run=dry_run, mutates=False)
+    else:
+        log(f"No scripts/smoke-test found in {repo}; skipping project tests")
+
+
+def download_sha256(url: str, *, retries: int = 12) -> str:
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            with urlopen(url, timeout=30) as response:
+                data = response.read()
+            return hashlib.sha256(data).hexdigest()
+        except URLError as error:
+            last_error = error
+            log(f"Archive not available yet ({attempt}/{retries}); retrying...")
+            time.sleep(2)
+    raise RuntimeError(f"failed to download {url}: {last_error}")
+
+
+def update_formula_file(formula: Formula, tag: str, sha256: str, *, dry_run: bool) -> None:
+    text = formula.path.read_text()
+    archive_url = f"https://github.com/{formula.repo_slug}/archive/refs/tags/{tag}.tar.gz"
+    head_url = f"https://github.com/{formula.repo_slug}.git"
+
+    lines = text.splitlines()
+    updated: list[str] = []
+    saw_url = False
+    saw_sha = False
+    saw_head = "head " in text
+
+    for line in lines:
+        stripped = line.strip()
+        indent = line[: len(line) - len(line.lstrip())]
+
+        if stripped.startswith("url "):
+            updated.append(f'{indent}url "{archive_url}"')
+            saw_url = True
+            continue
+
+        if stripped.startswith("sha256 "):
+            updated.append(f'{indent}sha256 "{sha256}"')
+            saw_sha = True
+            continue
+
+        if stripped.startswith("version "):
+            continue
+
+        updated.append(line)
+
+        if saw_url and not saw_sha and stripped.startswith("license "):
+            # Handles formulae that used a git branch URL and therefore had no sha256.
+            updated.insert(len(updated) - 1, f'{indent}sha256 "{sha256}"')
+            saw_sha = True
+
+        if not saw_head and stripped.startswith("license "):
+            updated.append(f'{indent}head "{head_url}", branch: "main"')
+            saw_head = True
+
+    new_text = "\n".join(updated) + "\n"
+    if dry_run:
+        log(f"DRY-RUN would update {formula.path} -> {tag} ({sha256})")
+        return
+    formula.path.write_text(new_text)
+    log(f"Updated {formula.path} -> {tag}")
+
+
+def release_formula(
+    formula: Formula,
+    *,
+    projects_dir: Path,
+    part: str,
+    remote: str,
+    dry_run: bool,
+    push: bool,
+    allow_dirty: bool,
+    skip_tests: bool,
+) -> str | None:
+    repo = projects_dir / formula.repo_name
+    if not repo.is_dir():
+        raise SystemExit(f"local repo not found for {formula.stem}: {repo}")
+
+    next_version = bump_version(formula.current_version, part)
+    tag = f"v{next_version}"
+
+    log(f"\n==> {formula.stem}: {formula.current_version} -> {next_version}")
+    ensure_clean(repo, formula.repo_name, allow_dirty=allow_dirty)
+
+    if not dry_run:
+        git(repo, ["fetch", "--tags", remote], dry_run=dry_run, mutates=True)
+
+    if tag_exists(repo, remote, tag):
+        raise SystemExit(f"tag already exists for {formula.stem}: {tag}")
+
+    if not skip_tests:
+        run_project_tests(repo, dry_run=dry_run)
+
+    git(repo, ["tag", "-a", tag, "-m", f"Release {tag}"], dry_run=dry_run, mutates=True)
+    if push:
+        git(repo, ["push", remote, tag], dry_run=dry_run, mutates=True)
+    else:
+        log(f"Skipping tag push for {formula.stem} because --no-push was set")
+        if not dry_run:
+            log("Skipping formula update because GitHub archive sha256 requires the tag to be pushed")
+            return None
+
+    archive_url = f"https://github.com/{formula.repo_slug}/archive/refs/tags/{tag}.tar.gz"
+    if dry_run:
+        log(f"DRY-RUN would download {archive_url} and compute sha256")
+        return tag
+
+    sha256 = download_sha256(archive_url)
+    update_formula_file(formula, tag, sha256, dry_run=dry_run)
+    return tag
+
+
+def commit_tap(tap_dir: Path, updated_paths: list[Path], *, dry_run: bool, push: bool, remote: str) -> None:
+    if not updated_paths:
+        return
+
+    rel_paths = [str(path.relative_to(tap_dir)) for path in updated_paths]
+    git(tap_dir, ["diff", "--", *rel_paths], dry_run=False, mutates=False)
+    git(tap_dir, ["add", *rel_paths], dry_run=dry_run, mutates=True)
+    git(tap_dir, ["commit", "-m", "Update Jamal Arcana formulae"], dry_run=dry_run, mutates=True)
+    if push:
+        git(tap_dir, ["push", remote, "HEAD"], dry_run=dry_run, mutates=True)
+    else:
+        log("Skipping tap push because --no-push was set")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Release Jamal Arcana tools and update Homebrew formulae")
+    parser.add_argument("-p", "--part", choices=("patch", "minor", "major"), default="patch", help="version part to bump; default: patch")
+    parser.add_argument("-t", "--tool", action="append", default=[], help="formula/tool to release; may be repeated or comma-separated; default: all")
+    parser.add_argument("--projects-dir", type=Path, default=None, help="directory containing local tool repos; default: parent of tap repo")
+    parser.add_argument("--remote", default="origin", help="git remote for tool repos and tap; default: origin")
+    parser.add_argument("--execute", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--dry-run", action="store_true", help="preview actions without creating tags, pushing, updating formulae, or committing")
+    parser.add_argument("--no-push", action="store_true", help="create local tags but do not push tags or tap; formula updates are skipped in execute mode")
+    parser.add_argument("--no-tap-commit", action="store_true", help="update formula files but do not commit/push the tap")
+    parser.add_argument("--allow-dirty", action="store_true", help="allow releasing repos with uncommitted changes")
+    parser.add_argument("--skip-tests", action="store_true", help="skip scripts/smoke-test checks")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    tap_dir = Path(__file__).resolve().parents[1]
+    formula_dir = tap_dir / "Formula"
+    projects_dir = args.projects_dir or tap_dir.parent
+    dry_run = args.dry_run
+    push = not args.no_push
+
+    formulae = [load_formula(path, projects_dir) for path in sorted(formula_dir.glob("*.rb"))]
+    targets = selected_formulae(formulae, args.tool)
+    if not targets:
+        raise SystemExit("no formulae selected")
+
+    log(f"Mode: {'dry-run' if dry_run else 'execute'}")
+    log(f"Version bump: {args.part}")
+    log(f"Projects dir: {projects_dir}")
+    log(f"Tools: {', '.join(formula.stem for formula in targets)}")
+
+    if not dry_run:
+        ensure_clean(tap_dir, "homebrew-jamal-arcana", allow_dirty=args.allow_dirty)
+
+    updated_paths: list[Path] = []
+    for formula in targets:
+        released_tag = release_formula(
+            formula,
+            projects_dir=projects_dir,
+            part=args.part,
+            remote=args.remote,
+            dry_run=dry_run,
+            push=push,
+            allow_dirty=args.allow_dirty,
+            skip_tests=args.skip_tests,
+        )
+        if released_tag is not None:
+            updated_paths.append(formula.path)
+
+    if not dry_run and not args.no_tap_commit:
+        commit_tap(tap_dir, updated_paths, dry_run=dry_run, push=push, remote=args.remote)
+    elif args.no_tap_commit:
+        log("Leaving formula changes uncommitted because --no-tap-commit was set")
+
+    log("Done")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
