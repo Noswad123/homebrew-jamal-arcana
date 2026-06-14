@@ -62,5 +62,7 @@ scripts/release -t wisp
 
 The script checks clean working trees, creates and pushes `vX.Y.Z` tags,
 downloads the GitHub tag archives to compute `sha256`, updates `Formula/*.rb`,
-commits the formula changes, and pushes the tap. Pass `--help` for safety and
-workflow options such as `--no-push`, `--no-tap-commit`, and `--skip-tests`.
+commits the formula changes, pushes the tap, and syncs Homebrew's local tap
+clone so `brew upgrade <tool>` sees the new version immediately. Pass `--help`
+for safety and workflow options such as `--no-push`, `--no-tap-commit`,
+`--no-brew-update`, and `--skip-tests`.

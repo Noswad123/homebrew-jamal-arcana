@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import re
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -302,6 +303,28 @@ def commit_tap(tap_dir: Path, updated_paths: list[Path], *, dry_run: bool, push:
         log("Skipping tap push because --no-push was set")
 
 
+def infer_tap_name(tap_dir: Path, remote: str) -> str | None:
+    remote_url = git(tap_dir, ["remote", "get-url", remote], capture=True)
+    match = re.search(r"github\.com[:/]([^/]+)/homebrew-([^/.]+)(?:\.git)?$", remote_url)
+    if not match:
+        return None
+    owner, tap = match.groups()
+    return f"{owner.lower()}/{tap}"
+
+
+def update_local_brew_tap(tap_name: str, *, dry_run: bool) -> None:
+    if not shutil.which("brew"):
+        log("brew not found; skipping local Homebrew tap sync")
+        return
+
+    tap_repo = run(["brew", "--repo", tap_name], capture=True, dry_run=dry_run, mutates=False)
+    if not tap_repo:
+        log(f"Homebrew tap {tap_name} is not installed locally; skipping local tap sync")
+        return
+
+    git(Path(tap_repo), ["pull", "--ff-only"], dry_run=dry_run, mutates=True)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Release Jamal Arcana tools and update Homebrew formulae")
     parser.add_argument("-p", "--part", choices=("patch", "minor", "major"), default="patch", help="version part to bump; default: patch")
@@ -312,6 +335,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="preview actions without creating tags, pushing, updating formulae, or committing")
     parser.add_argument("--no-push", action="store_true", help="create local tags but do not push tags or tap; formula updates are skipped in execute mode")
     parser.add_argument("--no-tap-commit", action="store_true", help="update formula files but do not commit/push the tap")
+    parser.add_argument("--no-brew-update", action="store_true", help="do not sync Homebrew's local tap clone after pushing the tap")
     parser.add_argument("--allow-dirty", action="store_true", help="allow releasing repos with uncommitted changes")
     parser.add_argument("--skip-tests", action="store_true", help="skip scripts/smoke-test checks")
     return parser.parse_args()
@@ -355,6 +379,12 @@ def main() -> int:
 
     if not dry_run and not args.no_tap_commit:
         commit_tap(tap_dir, updated_paths, dry_run=dry_run, push=push, remote=args.remote)
+        if push and not args.no_brew_update:
+            tap_name = infer_tap_name(tap_dir, args.remote)
+            if tap_name:
+                update_local_brew_tap(tap_name, dry_run=dry_run)
+            else:
+                log("Could not infer Homebrew tap name; skipping local tap sync")
     elif args.no_tap_commit:
         log("Leaving formula changes uncommitted because --no-tap-commit was set")
 
