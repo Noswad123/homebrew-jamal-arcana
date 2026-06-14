@@ -1,8 +1,8 @@
 class Mw < Formula
   desc "Local-first notes, todos, and optional Hive Mind sync CLI"
   homepage "https://github.com/Noswad123/mind-weaver"
-  url "https://github.com/Noswad123/mind-weaver/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "029bfb1cc49707ebab12dc728a60b8a831e7c96bfdc09ad27df06329d0407db4"
+  url "https://github.com/Noswad123/mind-weaver/archive/refs/tags/v0.1.1.tar.gz"
+  sha256 "e1696de61bb665b7af8cc5fb27f8ecb328c76fb3821cf0223e759d81128a6b41"
   license "MIT"
   head "https://github.com/Noswad123/mind-weaver.git", branch: "main"
 
