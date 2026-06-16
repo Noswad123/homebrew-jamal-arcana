@@ -15,7 +15,15 @@ class Wisp < Formula
   def caveats
     <<~EOS
       wisp opens commands in kitty floating windows on macOS.
-      Make sure kitty is installed and available in /Applications or on PATH.
+
+      Recommended companion tools:
+        brew install --cask kitty
+        brew install neovim
+        brew install --cask nikitabobko/tap/aerospace
+
+      kitty is the terminal backend. neovim is optional but commonly used as
+      `wisp nvim <file>`. Aerospace is optional and only needed for workflows
+      that rely on Aerospace-managed floating window placement.
     EOS
   end
 

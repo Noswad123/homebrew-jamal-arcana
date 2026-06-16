@@ -30,6 +30,38 @@ brew install Noswad123/jamal-arcana/waystone
 
 `coven` currently tracks the `main` branch until its first tagged release.
 
+## MindWeaver native app dependency strategy
+
+The native MindWeaver macOS app is intentionally a SwiftUI shell around the Go
+`mw` engine. Homebrew should provide the required CLI dependency instead of the
+app bundling its own copy:
+
+```bash
+brew install Noswad123/jamal-arcana/mw
+```
+
+Optional external-editing helpers can improve the raw Markdown workflow, but the
+app must continue to work without them:
+
+```bash
+brew install Noswad123/jamal-arcana/wisp
+brew install neovim
+brew install --cask kitty
+brew install --cask nikitabobko/tap/aerospace
+```
+
+Expected fallback order in the app:
+
+1. `wisp nvim <file>` when `wisp`, `nvim`, `kitty`, and `aerospace` are all available.
+2. `kitty --detach nvim <file>` when `kitty` and `nvim` are available.
+3. Terminal.app running `nvim <file>` when only `nvim` is available.
+4. GUI `$VISUAL`/`$EDITOR` commands such as `code`, `cursor`, `subl`, `mate`, `bbedit`, or `zed`.
+5. TextEdit via `open -e <file>` as the safe default.
+
+When a cask is added for the native app, it should declare `mw` as its required
+formula dependency and leave `wisp`, `neovim`, `kitty`, and `aerospace` as
+documented optional enhancements.
+
 ## Release formulae
 
 Use the release helper from this tap repo. It defaults to executing a patch
