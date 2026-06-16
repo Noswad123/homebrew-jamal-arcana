@@ -64,9 +64,8 @@ Expected fallback order in the app:
 4. GUI `$VISUAL`/`$EDITOR` commands such as `code`, `cursor`, `subl`, `mate`, `bbedit`, or `zed`.
 5. TextEdit via `open -e <file>` as the safe default.
 
-When a cask is added for the native app, it should declare `mw` as its required
-formula dependency and leave `wisp`, `neovim`, `kitty`, and `aerospace` as
-documented optional enhancements.
+The native app cask declares `mw` as its required formula dependency and leaves
+`wisp`, `neovim`, `kitty`, and `aerospace` as documented optional enhancements.
 
 The cask expects a signed/notarized release ZIP named with this convention:
 
@@ -86,14 +85,9 @@ For example:
 https://github.com/Noswad123/mind-weaver-swift/releases/download/v0.1.0/MindWeaver-0.1.0.zip
 ```
 
-Before publishing a cask update, replace `sha256 :no_check` in
-`Casks/mind-weaver.rb` with the real checksum:
+The release helper computes the ZIP checksum and updates `Casks/mind-weaver.rb`.
 
-```bash
-shasum -a 256 MindWeaver-0.1.0.zip
-```
-
-## Release formulae
+## Release formulae and casks
 
 Use the release helper from this tap repo. It defaults to executing a patch
 bump for every formula:
@@ -123,16 +117,26 @@ scripts/release -t wisp
 
 `-t` is an alias for `--tool`, and may be repeated or comma-separated.
 
-Release/update only the MindWeaver app cask from an exported archive:
+### Normal MindWeaver app cask release
+
+For future MindWeaver app releases, the expected flow is:
+
+1. Archive/export `MindWeaver.app` from Xcode.
+2. Run the cask release helper with the new version.
+3. Let the helper zip the app, create/update the GitHub release artifact, compute
+   SHA256, update the cask, commit/push the tap, and sync the local Homebrew tap.
+
+Use the exported app bundle directly:
 
 ```bash
 scripts/release \
-  --mind-weaver-app /path/to/MindWeaver.app \
-  --mind-weaver-version 0.1.0 \
-  --no-tap-commit
+  --mind-weaver-app ~/Projects/mind-weaver-swift/Archive/latest/MindWeaver.app \
+  --mind-weaver-version 0.1.1 \
+  --upload-mind-weaver-app \
+  --create-mind-weaver-release
 ```
 
-If the input is a `.app` bundle, the helper creates:
+If the input is a `.app` bundle, the helper creates the release ZIP:
 
 ```text
 dist/MindWeaver-<version>.zip
@@ -140,12 +144,33 @@ dist/MindWeaver-<version>.zip
 
 using `ditto -c -k --keepParent`, computes its SHA256, and updates
 `Casks/mind-weaver.rb`. If the input is already a ZIP, it computes the checksum
-directly. The helper prints the `gh release upload ...` command unless upload is
-enabled explicitly:
+directly.
+
+To preview without mutating GitHub, the tap, or the cask:
+
+```bash
+scripts/release --dry-run \
+  --mind-weaver-app ~/Projects/mind-weaver-swift/Archive/latest/MindWeaver.app \
+  --mind-weaver-version 0.1.1 \
+  --upload-mind-weaver-app \
+  --create-mind-weaver-release
+```
+
+To update the cask locally without uploading/committing, useful for testing:
 
 ```bash
 scripts/release \
-  --mind-weaver-app dist/MindWeaver-0.1.0.zip \
+  --mind-weaver-app ~/Projects/mind-weaver-swift/Archive/latest/MindWeaver.app \
+  --mind-weaver-version 0.1.1 \
+  --no-tap-commit
+```
+
+To use an already-created ZIP instead of an app bundle:
+
+```bash
+scripts/release \
+  --mind-weaver-app dist/MindWeaver-0.1.1.zip \
+  --mind-weaver-version 0.1.1 \
   --upload-mind-weaver-app \
   --create-mind-weaver-release
 ```
@@ -160,6 +185,48 @@ If that release does not exist yet, add `--create-mind-weaver-release` to create
 it before uploading the ZIP. Without that flag, the helper fails with a concise
 message instead of a Python traceback.
 
+After release, verify installation/update from the tap:
+
+```bash
+brew update
+brew upgrade --cask mind-weaver
+# or, on a clean machine:
+brew install --cask Noswad123/jamal-arcana/mind-weaver
+```
+
+### First-time or auth troubleshooting
+
+The first cask release required extra setup because the cask, release artifact,
+and GitHub release did not exist yet. Future releases should not need that extra
+manual setup.
+
+If `gh release create` fails with a missing `workflow` scope, refresh GitHub CLI
+auth for the same GitHub account that owns or can write to
+`Noswad123/mind-weaver-swift`:
+
+```bash
+gh auth status -h github.com
+gh auth refresh -h github.com -s workflow
+```
+
+If `gh auth refresh` says it received credentials for a different account, log
+out of the wrong account or re-login as the intended one:
+
+```bash
+gh auth logout -h github.com
+gh auth login -h github.com -p https -s repo,workflow
+```
+
+The browser/device flow must complete as the same account shown by
+`gh auth status`, otherwise GitHub CLI will refuse to refresh the token.
+
+If the tap repo is dirty while iterating on release tooling, either commit/stash
+the changes first or intentionally use:
+
+```bash
+scripts/release ... --allow-dirty
+```
+
 To release formulae and the app cask together, select both targets:
 
 ```bash
@@ -168,7 +235,7 @@ scripts/release -t mw -t mind-weaver --mind-weaver-app /path/to/MindWeaver.app
 
 The script checks clean working trees, creates and pushes `vX.Y.Z` tags,
 downloads the GitHub tag archives to compute formula `sha256` values, updates
-`Formula/*.rb` and/or `Casks/*.rb`, commits the tap changes, pushes the tap, and syncs Homebrew's local tap
-clone so `brew upgrade <tool>` sees the new version immediately. Pass `--help`
-for safety and workflow options such as `--no-push`, `--no-tap-commit`,
-`--no-brew-update`, and `--skip-tests`.
+`Formula/*.rb` and/or `Casks/*.rb`, commits the tap changes, pushes the tap, and
+syncs Homebrew's local tap clone so `brew upgrade <tool>` sees the new version
+immediately. Pass `--help` for safety and workflow options such as `--no-push`,
+`--no-tap-commit`, `--no-brew-update`, and `--skip-tests`.
