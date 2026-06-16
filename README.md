@@ -10,6 +10,7 @@ brew install coven
 brew install mw
 brew install wisp
 brew install waystone
+brew install --cask mind-weaver
 ```
 
 Or install directly:
@@ -19,6 +20,7 @@ brew install Noswad123/jamal-arcana/coven
 brew install Noswad123/jamal-arcana/mw
 brew install Noswad123/jamal-arcana/wisp
 brew install Noswad123/jamal-arcana/waystone
+brew install --cask Noswad123/jamal-arcana/mind-weaver
 ```
 
 ## Formulae
@@ -27,6 +29,10 @@ brew install Noswad123/jamal-arcana/waystone
 - `mw` — local-first notes and todos CLI
 - `wisp` — open a command in a floating kitty terminal window
 - `waystone` — save, fuzzy-pick, copy, and open frequently used paths
+
+## Casks
+
+- `mind-weaver` — native macOS app shell for MindWeaver
 
 `coven` currently tracks the `main` branch until its first tagged release.
 
@@ -62,6 +68,31 @@ When a cask is added for the native app, it should declare `mw` as its required
 formula dependency and leave `wisp`, `neovim`, `kitty`, and `aerospace` as
 documented optional enhancements.
 
+The cask expects a signed/notarized release ZIP named with this convention:
+
+```text
+MindWeaver-<version>.zip
+```
+
+uploaded to the Swift app repository release:
+
+```text
+https://github.com/Noswad123/mind-weaver-swift/releases/tag/v<version>
+```
+
+For example:
+
+```text
+https://github.com/Noswad123/mind-weaver-swift/releases/download/v0.1.0/MindWeaver-0.1.0.zip
+```
+
+Before publishing a cask update, replace `sha256 :no_check` in
+`Casks/mind-weaver.rb` with the real checksum:
+
+```bash
+shasum -a 256 MindWeaver-0.1.0.zip
+```
+
 ## Release formulae
 
 Use the release helper from this tap repo. It defaults to executing a patch
@@ -92,9 +123,47 @@ scripts/release -t wisp
 
 `-t` is an alias for `--tool`, and may be repeated or comma-separated.
 
+Release/update only the MindWeaver app cask from an exported archive:
+
+```bash
+scripts/release \
+  --mind-weaver-app /path/to/MindWeaver.app \
+  --mind-weaver-version 0.1.0 \
+  --no-tap-commit
+```
+
+If the input is a `.app` bundle, the helper creates:
+
+```text
+dist/MindWeaver-<version>.zip
+```
+
+using `ditto -c -k --keepParent`, computes its SHA256, and updates
+`Casks/mind-weaver.rb`. If the input is already a ZIP, it computes the checksum
+directly. The helper prints the `gh release upload ...` command unless upload is
+enabled explicitly:
+
+```bash
+scripts/release \
+  --mind-weaver-app dist/MindWeaver-0.1.0.zip \
+  --upload-mind-weaver-app
+```
+
+`--upload-mind-weaver-app` expects an existing GitHub release at:
+
+```text
+Noswad123/mind-weaver-swift v<version>
+```
+
+To release formulae and the app cask together, select both targets:
+
+```bash
+scripts/release -t mw -t mind-weaver --mind-weaver-app /path/to/MindWeaver.app
+```
+
 The script checks clean working trees, creates and pushes `vX.Y.Z` tags,
-downloads the GitHub tag archives to compute `sha256`, updates `Formula/*.rb`,
-commits the formula changes, pushes the tap, and syncs Homebrew's local tap
+downloads the GitHub tag archives to compute formula `sha256` values, updates
+`Formula/*.rb` and/or `Casks/*.rb`, commits the tap changes, pushes the tap, and syncs Homebrew's local tap
 clone so `brew upgrade <tool>` sees the new version immediately. Pass `--help`
 for safety and workflow options such as `--no-push`, `--no-tap-commit`,
 `--no-brew-update`, and `--skip-tests`.

@@ -20,6 +20,8 @@ from urllib.request import urlopen
 
 
 SEMVER_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+MIND_WEAVER_CASK_ALIASES = {"mind-weaver", "mindweaver", "mind-weaver-swift"}
+MIND_WEAVER_RELEASE_REPO = "Noswad123/mind-weaver-swift"
 
 
 @dataclass(frozen=True)
@@ -193,6 +195,123 @@ def download_sha256(url: str, *, retries: int = 12) -> str:
     raise RuntimeError(f"failed to download {url}: {last_error}")
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def cask_version(text: str) -> str:
+    match = re.search(r'^\s*version\s+"(\d+\.\d+\.\d+)"', text, flags=re.MULTILINE)
+    if not match:
+        raise ValueError("could not infer cask version")
+    return match.group(1)
+
+
+def infer_mind_weaver_version(input_path: Path, cask_path: Path, explicit_version: str | None) -> str:
+    if explicit_version:
+        if not SEMVER_RE.match(explicit_version):
+            raise SystemExit(f"invalid MindWeaver version: {explicit_version}")
+        return explicit_version.removeprefix("v")
+
+    match = re.search(r"MindWeaver[-_ ]v?(\d+\.\d+\.\d+)\.zip$", input_path.name)
+    if match:
+        return match.group(1)
+
+    return cask_version(cask_path.read_text())
+
+
+def prepare_mind_weaver_zip(input_path: Path, output_path: Path, *, dry_run: bool) -> Path:
+    if not input_path.exists():
+        raise SystemExit(f"MindWeaver app artifact not found: {input_path}")
+
+    if input_path.suffix.lower() == ".zip":
+        return input_path
+
+    if input_path.suffix.lower() != ".app":
+        raise SystemExit("--mind-weaver-app must point to MindWeaver.app or a MindWeaver-<version>.zip file")
+
+    if input_path.name != "MindWeaver.app":
+        log(f"WARNING: expected app bundle named MindWeaver.app, got {input_path.name}")
+
+    log(f"Creating {output_path} from {input_path}")
+    if dry_run:
+        log(f"DRY-RUN would run: ditto -c -k --keepParent {input_path} {output_path}")
+        return output_path
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        output_path.unlink()
+    run(["ditto", "-c", "-k", "--keepParent", str(input_path), str(output_path)], mutates=True)
+    return output_path
+
+
+def update_mind_weaver_cask(cask_path: Path, *, version: str, sha256: str, dry_run: bool) -> None:
+    text = cask_path.read_text()
+    text = re.sub(r'^\s*version\s+"[^"]+"', f'  version "{version}"', text, count=1, flags=re.MULTILINE)
+    text = re.sub(r'^\s*sha256\s+(:no_check|"[0-9a-fA-F]+")', f'  sha256 "{sha256}"', text, count=1, flags=re.MULTILINE)
+
+    if dry_run:
+        log(f"DRY-RUN would update {cask_path} -> v{version} ({sha256})")
+        return
+
+    cask_path.write_text(text)
+    log(f"Updated {cask_path} -> v{version}")
+
+
+def upload_mind_weaver_app(zip_path: Path, *, version: str, repo: str, dry_run: bool) -> None:
+    tag = f"v{version}"
+    if not shutil.which("gh"):
+        raise SystemExit("gh not found; install GitHub CLI or omit --upload-mind-weaver-app")
+
+    args = ["gh", "release", "upload", tag, str(zip_path), "--repo", repo, "--clobber"]
+    run(args, dry_run=dry_run, mutates=True)
+
+
+def release_mind_weaver_cask(
+    *,
+    tap_dir: Path,
+    input_path: Path,
+    version: str | None,
+    output_zip: Path | None,
+    upload: bool,
+    release_repo: str,
+    dry_run: bool,
+) -> Path:
+    cask_path = tap_dir / "Casks" / "mind-weaver.rb"
+    if not cask_path.exists():
+        raise SystemExit(f"MindWeaver cask not found: {cask_path}")
+
+    resolved_version = infer_mind_weaver_version(input_path, cask_path, version)
+    zip_path = output_zip or tap_dir / "dist" / f"MindWeaver-{resolved_version}.zip"
+
+    log(f"\n==> mind-weaver cask: v{resolved_version}")
+    artifact = prepare_mind_weaver_zip(input_path, zip_path, dry_run=dry_run)
+
+    expected_name = f"MindWeaver-{resolved_version}.zip"
+    if artifact.name != expected_name:
+        log(f"WARNING: cask URL expects {expected_name}; artifact is named {artifact.name}")
+
+    if dry_run and not artifact.exists():
+        sha256 = "0" * 64
+        log(f"DRY-RUN would compute sha256 for {artifact}")
+    else:
+        sha256 = file_sha256(artifact)
+
+    if upload:
+        upload_mind_weaver_app(artifact, version=resolved_version, repo=release_repo, dry_run=dry_run)
+    else:
+        log(
+            "Upload manually with:\n"
+            f"  gh release upload v{resolved_version} {artifact} --repo {release_repo} --clobber"
+        )
+
+    update_mind_weaver_cask(cask_path, version=resolved_version, sha256=sha256, dry_run=dry_run)
+    return cask_path
+
+
 def update_formula_file(formula: Formula, tag: str, sha256: str, *, dry_run: bool) -> None:
     text = formula.path.read_text()
     archive_url = f"https://github.com/{formula.repo_slug}/archive/refs/tags/{tag}.tar.gz"
@@ -296,7 +415,7 @@ def commit_tap(tap_dir: Path, updated_paths: list[Path], *, dry_run: bool, push:
     rel_paths = [str(path.relative_to(tap_dir)) for path in updated_paths]
     git(tap_dir, ["diff", "--", *rel_paths], dry_run=False, mutates=False)
     git(tap_dir, ["add", *rel_paths], dry_run=dry_run, mutates=True)
-    git(tap_dir, ["commit", "-m", "Update Jamal Arcana formulae"], dry_run=dry_run, mutates=True)
+    git(tap_dir, ["commit", "-m", "Update Jamal Arcana releases"], dry_run=dry_run, mutates=True)
     if push:
         git(tap_dir, ["push", remote, "HEAD"], dry_run=dry_run, mutates=True)
     else:
@@ -326,7 +445,7 @@ def update_local_brew_tap(tap_name: str, *, dry_run: bool) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Release Jamal Arcana tools and update Homebrew formulae")
+    parser = argparse.ArgumentParser(description="Release Jamal Arcana tools and update Homebrew formulae/casks")
     parser.add_argument("-p", "--part", choices=("patch", "minor", "major"), default="patch", help="version part to bump; default: patch")
     parser.add_argument("-t", "--tool", action="append", default=[], help="formula/tool to release; may be repeated or comma-separated; default: all")
     parser.add_argument("--projects-dir", type=Path, default=None, help="directory containing local tool repos; default: parent of tap repo")
@@ -338,6 +457,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-brew-update", action="store_true", help="do not sync Homebrew's local tap clone after pushing the tap")
     parser.add_argument("--allow-dirty", action="store_true", help="allow releasing repos with uncommitted changes")
     parser.add_argument("--skip-tests", action="store_true", help="skip scripts/smoke-test checks")
+    parser.add_argument("--mind-weaver-app", type=Path, default=None, help="path to exported MindWeaver.app or MindWeaver-<version>.zip; updates the mind-weaver cask")
+    parser.add_argument("--mind-weaver-version", default=None, help="MindWeaver app version for cask update; default: ZIP filename or current cask version")
+    parser.add_argument("--mind-weaver-zip-output", type=Path, default=None, help="output ZIP path when --mind-weaver-app points to a .app bundle; default: dist/MindWeaver-<version>.zip")
+    parser.add_argument("--upload-mind-weaver-app", action="store_true", help="upload the MindWeaver ZIP to an existing GitHub release with gh release upload --clobber")
+    parser.add_argument("--mind-weaver-release-repo", default=MIND_WEAVER_RELEASE_REPO, help=f"GitHub release repo for MindWeaver app; default: {MIND_WEAVER_RELEASE_REPO}")
     return parser.parse_args()
 
 
@@ -350,19 +474,42 @@ def main() -> int:
     push = not args.no_push
 
     formulae = [load_formula(path, projects_dir) for path in sorted(formula_dir.glob("*.rb"))]
-    targets = selected_formulae(formulae, args.tool)
-    if not targets:
-        raise SystemExit("no formulae selected")
+    requested_cask = False
+    formula_tools = args.tool
+    if args.mind_weaver_app:
+        requested = [item.strip().lower() for raw in args.tool for item in raw.split(",") if item.strip()]
+        requested_cask = not requested or any(item in MIND_WEAVER_CASK_ALIASES for item in requested)
+        formula_tools = [item for item in requested if item not in MIND_WEAVER_CASK_ALIASES]
+
+    targets = selected_formulae(formulae, formula_tools) if formula_tools or not args.mind_weaver_app else []
+    if not targets and not requested_cask:
+        raise SystemExit("no formulae or casks selected")
 
     log(f"Mode: {'dry-run' if dry_run else 'execute'}")
     log(f"Version bump: {args.part}")
     log(f"Projects dir: {projects_dir}")
-    log(f"Tools: {', '.join(formula.stem for formula in targets)}")
+    target_labels = [formula.stem for formula in targets]
+    if requested_cask:
+        target_labels.append("mind-weaver cask")
+    log(f"Targets: {', '.join(target_labels)}")
 
     if not dry_run:
         ensure_clean(tap_dir, "homebrew-jamal-arcana", allow_dirty=args.allow_dirty)
 
     updated_paths: list[Path] = []
+    if requested_cask and args.mind_weaver_app:
+        updated_paths.append(
+            release_mind_weaver_cask(
+                tap_dir=tap_dir,
+                input_path=args.mind_weaver_app,
+                version=args.mind_weaver_version,
+                output_zip=args.mind_weaver_zip_output,
+                upload=args.upload_mind_weaver_app,
+                release_repo=args.mind_weaver_release_repo,
+                dry_run=dry_run,
+            )
+        )
+
     for formula in targets:
         released_tag = release_formula(
             formula,

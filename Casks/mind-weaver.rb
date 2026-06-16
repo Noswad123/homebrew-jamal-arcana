@@ -1,0 +1,22 @@
+cask "mind-weaver" do
+  version "0.1.0"
+  sha256 :no_check
+
+  url "https://github.com/Noswad123/mind-weaver-swift/releases/download/v#{version}/MindWeaver-#{version}.zip",
+      verified: "github.com/Noswad123/mind-weaver-swift/"
+  name "MindWeaver"
+  desc "Native shell for MindWeaver notes, todos, dashboards, and graphs"
+  homepage "https://github.com/Noswad123/mind-weaver-swift"
+
+  depends_on formula: "mw"
+  depends_on macos: :ventura
+
+  app "MindWeaver.app"
+
+  zap trash: [
+    "~/Library/Application Support/MindWeaver",
+    "~/Library/Caches/jamal-arcana.MindWeaver",
+    "~/Library/Preferences/jamal-arcana.MindWeaver.plist",
+    "~/Library/Saved Application State/jamal-arcana.MindWeaver.savedState",
+  ]
+end
