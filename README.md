@@ -146,14 +146,19 @@ enabled explicitly:
 ```bash
 scripts/release \
   --mind-weaver-app dist/MindWeaver-0.1.0.zip \
-  --upload-mind-weaver-app
+  --upload-mind-weaver-app \
+  --create-mind-weaver-release
 ```
 
-`--upload-mind-weaver-app` expects an existing GitHub release at:
+`--upload-mind-weaver-app` uploads to the GitHub release at:
 
 ```text
 Noswad123/mind-weaver-swift v<version>
 ```
+
+If that release does not exist yet, add `--create-mind-weaver-release` to create
+it before uploading the ZIP. Without that flag, the helper fails with a concise
+message instead of a Python traceback.
 
 To release formulae and the app cask together, select both targets:
 

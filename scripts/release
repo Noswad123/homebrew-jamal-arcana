@@ -261,10 +261,53 @@ def update_mind_weaver_cask(cask_path: Path, *, version: str, sha256: str, dry_r
     log(f"Updated {cask_path} -> v{version}")
 
 
-def upload_mind_weaver_app(zip_path: Path, *, version: str, repo: str, dry_run: bool) -> None:
+def gh_release_exists(tag: str, *, repo: str) -> bool:
+    completed = subprocess.run(
+        ["gh", "release", "view", tag, "--repo", repo],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return completed.returncode == 0
+
+
+def upload_mind_weaver_app(zip_path: Path, *, version: str, repo: str, create_release: bool, dry_run: bool) -> None:
     tag = f"v{version}"
     if not shutil.which("gh"):
         raise SystemExit("gh not found; install GitHub CLI or omit --upload-mind-weaver-app")
+
+    if dry_run:
+        if create_release:
+            log(
+                "DRY-RUN would ensure GitHub release exists with:\n"
+                f"  gh release create {tag} --repo {repo} --title 'MindWeaver {tag}' --notes 'MindWeaver {tag} macOS release'"
+            )
+        log(
+            "DRY-RUN would upload with:\n"
+            f"  gh release upload {tag} {zip_path} --repo {repo} --clobber"
+        )
+        return
+
+    if not gh_release_exists(tag, repo=repo):
+        if not create_release:
+            raise SystemExit(
+                f"GitHub release {repo} {tag} not found. Create it first or rerun with --create-mind-weaver-release."
+            )
+        run(
+            [
+                "gh",
+                "release",
+                "create",
+                tag,
+                "--repo",
+                repo,
+                "--title",
+                f"MindWeaver {tag}",
+                "--notes",
+                f"MindWeaver {tag} macOS release",
+            ],
+            mutates=True,
+        )
 
     args = ["gh", "release", "upload", tag, str(zip_path), "--repo", repo, "--clobber"]
     run(args, dry_run=dry_run, mutates=True)
@@ -277,6 +320,7 @@ def release_mind_weaver_cask(
     version: str | None,
     output_zip: Path | None,
     upload: bool,
+    create_release: bool,
     release_repo: str,
     dry_run: bool,
 ) -> Path:
@@ -301,10 +345,16 @@ def release_mind_weaver_cask(
         sha256 = file_sha256(artifact)
 
     if upload:
-        upload_mind_weaver_app(artifact, version=resolved_version, repo=release_repo, dry_run=dry_run)
+        upload_mind_weaver_app(
+            artifact,
+            version=resolved_version,
+            repo=release_repo,
+            create_release=create_release,
+            dry_run=dry_run,
+        )
     else:
         log(
-            "Upload manually with:\n"
+            "Upload manually after creating the GitHub release with:\n"
             f"  gh release upload v{resolved_version} {artifact} --repo {release_repo} --clobber"
         )
 
@@ -461,6 +511,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mind-weaver-version", default=None, help="MindWeaver app version for cask update; default: ZIP filename or current cask version")
     parser.add_argument("--mind-weaver-zip-output", type=Path, default=None, help="output ZIP path when --mind-weaver-app points to a .app bundle; default: dist/MindWeaver-<version>.zip")
     parser.add_argument("--upload-mind-weaver-app", action="store_true", help="upload the MindWeaver ZIP to an existing GitHub release with gh release upload --clobber")
+    parser.add_argument("--create-mind-weaver-release", action="store_true", help="create the GitHub release if missing before uploading the MindWeaver ZIP")
     parser.add_argument("--mind-weaver-release-repo", default=MIND_WEAVER_RELEASE_REPO, help=f"GitHub release repo for MindWeaver app; default: {MIND_WEAVER_RELEASE_REPO}")
     return parser.parse_args()
 
@@ -505,6 +556,7 @@ def main() -> int:
                 version=args.mind_weaver_version,
                 output_zip=args.mind_weaver_zip_output,
                 upload=args.upload_mind_weaver_app,
+                create_release=args.create_mind_weaver_release,
                 release_repo=args.mind_weaver_release_repo,
                 dry_run=dry_run,
             )
