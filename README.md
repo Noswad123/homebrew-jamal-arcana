@@ -121,9 +121,9 @@ scripts/release -t wisp
 
 For future MindWeaver app releases, the expected flow is:
 
-1. Archive/export `MindWeaver.app` from Xcode.
+1. Archive/export a Developer ID signed and notarized `MindWeaver.app` from Xcode.
 2. Run the cask release helper with the new version.
-3. Let the helper zip the app, create/update the GitHub release artifact, compute
+3. Let the helper verify signing/notarization, zip the app, create/update the GitHub release artifact, compute
    SHA256, update the cask, commit/push the tap, and sync the local Homebrew tap.
 
 Use the exported app bundle directly:
@@ -145,6 +145,22 @@ dist/MindWeaver-<version>.zip
 using `ditto -c -k --keepParent`, computes its SHA256, and updates
 `Casks/mind-weaver.rb`. If the input is already a ZIP, it computes the checksum
 directly.
+
+Before updating/uploading the cask artifact, the helper verifies the app with:
+
+```bash
+codesign --verify --deep --strict --verbose=2 MindWeaver.app
+spctl --assess --type execute --verbose=4 MindWeaver.app
+xcrun stapler validate MindWeaver.app
+```
+
+For local cask iteration only, bypass those release checks with:
+
+```bash
+scripts/release ... --skip-mind-weaver-security-checks --no-tap-commit
+```
+
+Do not use that bypass for published Homebrew releases.
 
 To preview without mutating GitHub, the tap, or the cask:
 
