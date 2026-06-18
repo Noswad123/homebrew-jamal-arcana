@@ -67,7 +67,7 @@ Expected fallback order in the app:
 The native app cask declares `mw` as its required formula dependency and leaves
 `wisp`, `neovim`, `kitty`, and `aerospace` as documented optional enhancements.
 
-The cask expects a signed/notarized release ZIP named with this convention:
+The cask expects a release ZIP named with this convention:
 
 ```text
 MindWeaver-<version>.zip
@@ -121,10 +121,19 @@ scripts/release -t wisp
 
 For future MindWeaver app releases, the expected flow is:
 
-1. Archive/export a Developer ID signed and notarized `MindWeaver.app` from Xcode.
+1. Archive/export `MindWeaver.app` from Xcode.
 2. Run the cask release helper with the new version.
-3. Let the helper verify signing/notarization, zip the app, create/update the GitHub release artifact, compute
+3. Let the helper validate the app bundle shape, zip the app, create/update the GitHub release artifact, compute
    SHA256, update the cask, commit/push the tap, and sync the local Homebrew tap.
+
+MindWeaver preview releases are not Developer ID signed or notarized. Users may
+need to bypass Gatekeeper after installing:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MindWeaver.app
+```
+
+This tradeoff avoids requiring Apple Developer Program membership for now.
 
 Use the exported app bundle directly:
 
@@ -146,21 +155,9 @@ using `ditto -c -k --keepParent`, computes its SHA256, and updates
 `Casks/mind-weaver.rb`. If the input is already a ZIP, it computes the checksum
 directly.
 
-Before updating/uploading the cask artifact, the helper verifies the app with:
-
-```bash
-codesign --verify --deep --strict --verbose=2 MindWeaver.app
-spctl --assess --type execute --verbose=4 MindWeaver.app
-xcrun stapler validate MindWeaver.app
-```
-
-For local cask iteration only, bypass those release checks with:
-
-```bash
-scripts/release ... --skip-mind-weaver-security-checks --no-tap-commit
-```
-
-Do not use that bypass for published Homebrew releases.
+Before updating/uploading the cask artifact, the helper verifies that the ZIP or
+input bundle contains `MindWeaver.app` and `Contents/MacOS/MindWeaver`. It does
+not require Developer ID signing or Apple notarization.
 
 To preview without mutating GitHub, the tap, or the cask:
 

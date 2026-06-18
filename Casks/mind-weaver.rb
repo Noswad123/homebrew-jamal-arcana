@@ -13,6 +13,15 @@ cask "mind-weaver" do
 
   app "MindWeaver.app"
 
+  caveats <<~EOS
+    MindWeaver preview releases are not Developer ID notarized.
+    If macOS blocks first launch, run:
+
+      xattr -dr com.apple.quarantine /Applications/MindWeaver.app
+
+    Then open MindWeaver again.
+  EOS
+
   zap trash: [
     "~/Library/Application Support/MindWeaver",
     "~/Library/Caches/jamal-arcana.MindWeaver",
