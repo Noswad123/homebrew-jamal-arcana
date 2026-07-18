@@ -23,6 +23,7 @@ from urllib.request import urlopen
 SEMVER_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 MIND_WEAVER_CASK_ALIASES = {"mind-weaver", "mindweaver", "mind-weaver-swift"}
 MIND_WEAVER_RELEASE_REPO = "Noswad123/mind-weaver-swift"
+NON_RELEASE_FORMULAE = {"arcana"}
 
 
 @dataclass(frozen=True)
@@ -549,6 +550,15 @@ def update_local_brew_tap(tap_name: str, *, dry_run: bool) -> None:
     git(Path(tap_repo), ["pull", "--ff-only"], dry_run=dry_run, mutates=True)
 
 
+def validate_ecosystem_manifest(tap_dir: Path) -> None:
+    ecosystem = tap_dir / "scripts" / "arcana"
+    manifest = tap_dir / "tools.yaml"
+    if not ecosystem.exists() or not manifest.exists():
+        return
+
+    run([str(ecosystem), "doctor"], cwd=tap_dir, mutates=False)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Release Jamal Arcana tools and update Homebrew formulae/casks")
     parser.add_argument("-p", "--part", choices=("patch", "minor", "major"), default="patch", help="version part to bump; default: patch")
@@ -580,6 +590,8 @@ def main() -> int:
     push = not args.no_push
 
     formulae = [load_formula(path, projects_dir) for path in sorted(formula_dir.glob("*.rb"))]
+    if not args.tool:
+        formulae = [formula for formula in formulae if formula.stem not in NON_RELEASE_FORMULAE]
     requested_cask = False
     formula_tools = args.tool
     if args.mind_weaver_app:
@@ -588,6 +600,12 @@ def main() -> int:
         formula_tools = [item for item in requested if item not in MIND_WEAVER_CASK_ALIASES]
 
     targets = selected_formulae(formulae, formula_tools) if formula_tools or not args.mind_weaver_app else []
+    non_release_targets = [formula.stem for formula in targets if formula.stem in NON_RELEASE_FORMULAE]
+    if non_release_targets:
+        raise SystemExit(
+            f"not release-managed by this script: {', '.join(non_release_targets)}; "
+            "these formulae track this tap directly"
+        )
     if not targets and not requested_cask:
         raise SystemExit("no formulae or casks selected")
 
@@ -598,6 +616,8 @@ def main() -> int:
     if requested_cask:
         target_labels.append("mind-weaver cask")
     log(f"Targets: {', '.join(target_labels)}")
+
+    validate_ecosystem_manifest(tap_dir)
 
     if not dry_run:
         ensure_clean(tap_dir, "homebrew-jamal-arcana", allow_dirty=args.allow_dirty)

@@ -1,0 +1,42 @@
+tap: Noswad123/jamal-arcana
+
+formulae:
+  - name: arcana
+    command: arcana
+    description: Install and update the Jamal Arcana Homebrew ecosystem.
+  - name: coven
+    command: coven
+    description: Magic-themed multi-agent workspaces backed by local files and tmux.
+  - name: djinn
+    command: djinn
+    description: Local-first companion for OpenCode and other AI coding agents.
+  - name: kitsune
+    command: kit
+    description: Composable multiplexer kits for named working sessions.
+  - name: mw
+    command: mw
+    description: Local-first notes, todos, and optional Hive Mind sync CLI.
+  - name: waystone
+    command: waystone
+    description: Save, fuzzy-pick, copy, and open frequently used paths.
+  - name: wisp
+    command: wisp
+    description: Open commands in floating kitty terminal windows.
+
+casks:
+  - name: mind-weaver
+    app: MindWeaver.app
+    description: Native macOS app shell for MindWeaver.
+
+optional:
+  formulae:
+    - name: neovim
+      package: neovim
+      description: Optional editor used by MindWeaver and wisp workflows.
+  casks:
+    - name: kitty
+      package: kitty
+      description: Optional terminal backend used by wisp workflows.
+    - name: nikitabobko/tap/aerospace
+      installed_name: aerospace
+      description: Optional window manager used by wisp floating-window workflows.

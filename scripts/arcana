@@ -1,0 +1,296 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "optparse"
+require "yaml"
+
+def candidate_manifest_paths
+  [
+    ENV["ARCANA_TOOLS_YAML"],
+    File.join(File.expand_path("..", __dir__), "tools.yaml"),
+    File.expand_path("../share/arcana/tools.yaml", __dir__),
+    File.expand_path("../share/arcana/tools.yaml", File.realpath(__dir__))
+  ].compact
+end
+
+MANIFEST_PATH = candidate_manifest_paths.find { |path| File.exist?(path) } || candidate_manifest_paths.first
+ROOT = File.dirname(MANIFEST_PATH)
+
+Options = Struct.new(:dry_run, :include_optional, :include_casks, keyword_init: true)
+
+def usage
+  <<~USAGE
+    Usage: arcana <command> [options]
+
+    Commands:
+      install   Tap this repo and install every required tool from tools.yaml
+      update    Update Homebrew, install missing tools, and upgrade installed tools
+      doctor    Check tools.yaml against Formula/ and Casks/ and report install state
+      list      Print tools from tools.yaml
+
+    Options:
+      --dry-run            Print brew commands without running them
+      --include-optional   Include optional helper tools
+      --no-casks           Skip cask entries
+  USAGE
+end
+
+def parse_args(argv)
+  options = Options.new(dry_run: false, include_optional: false, include_casks: true)
+  parser = OptionParser.new do |opts|
+    opts.on("--dry-run") { options.dry_run = true }
+    opts.on("--include-optional") { options.include_optional = true }
+    opts.on("--no-casks") { options.include_casks = false }
+    opts.on("-h", "--help") do
+      puts usage
+      exit 0
+    end
+  end
+
+  command = argv.shift
+  unless %w[install update doctor list].include?(command)
+    warn usage
+    exit 2
+  end
+
+  parser.parse!(argv)
+  [command, options]
+end
+
+def manifest
+  abort "tools.yaml not found. Set ARCANA_TOOLS_YAML=/path/to/tools.yaml" unless File.exist?(MANIFEST_PATH)
+
+  YAML.safe_load(File.read(MANIFEST_PATH), aliases: false)
+end
+
+def tap_name(data)
+  data.fetch("tap")
+end
+
+def required_formulae(data)
+  data.fetch("formulae", [])
+end
+
+def required_casks(data)
+  data.fetch("casks", [])
+end
+
+def optional_formulae(data)
+  data.dig("optional", "formulae") || []
+end
+
+def optional_casks(data)
+  data.dig("optional", "casks") || []
+end
+
+def item_name(item)
+  item.fetch("name")
+end
+
+def installed_name(item)
+  item["installed_name"] || File.basename(item_name(item))
+end
+
+def package_name(tap, item)
+  return item["package"] if item["package"]
+
+  name = item_name(item)
+  name.include?("/") ? name : "#{tap}/#{name}"
+end
+
+def run(*args, dry_run: false, allow_failure: false)
+  puts "$ #{args.join(" ")}"
+  return true if dry_run
+
+  return true if system(*args) || allow_failure
+
+  abort "command failed: #{args.join(" ")}"
+end
+
+def brew_available?
+  system("brew", "--version", out: File::NULL, err: File::NULL)
+end
+
+def formula_installed?(name)
+  system("brew", "list", "--formula", name, out: File::NULL, err: File::NULL)
+end
+
+def cask_installed?(name)
+  system("brew", "list", "--cask", name, out: File::NULL, err: File::NULL)
+end
+
+def install_formulae(data, options)
+  tap = tap_name(data)
+  formulae = required_formulae(data)
+  formulae += optional_formulae(data) if options.include_optional
+
+  formulae.each do |item|
+    name = installed_name(item)
+    if !options.dry_run && formula_installed?(name)
+      puts "formula #{name} already installed"
+      next
+    end
+    run("brew", "install", package_name(tap, item), dry_run: options.dry_run)
+  end
+end
+
+def install_casks(data, options)
+  return unless options.include_casks
+
+  tap = tap_name(data)
+  casks = required_casks(data)
+  casks += optional_casks(data) if options.include_optional
+
+  casks.each do |item|
+    name = installed_name(item)
+    if !options.dry_run && cask_installed?(name)
+      puts "cask #{name} already installed"
+      next
+    end
+    run("brew", "install", "--cask", package_name(tap, item), dry_run: options.dry_run)
+  end
+end
+
+def upgrade_formulae(data, options)
+  tap = tap_name(data)
+  formulae = required_formulae(data)
+  formulae += optional_formulae(data) if options.include_optional
+
+  formulae.each do |item|
+    name = installed_name(item)
+    next unless options.dry_run || formula_installed?(name)
+
+    run("brew", "upgrade", package_name(tap, item), dry_run: options.dry_run, allow_failure: true)
+  end
+end
+
+def upgrade_casks(data, options)
+  return unless options.include_casks
+
+  tap = tap_name(data)
+  casks = required_casks(data)
+  casks += optional_casks(data) if options.include_optional
+
+  casks.each do |item|
+    name = installed_name(item)
+    next unless options.dry_run || cask_installed?(name)
+
+    run("brew", "upgrade", "--cask", package_name(tap, item), dry_run: options.dry_run, allow_failure: true)
+  end
+end
+
+def command_install(data, options)
+  abort "brew is required" unless options.dry_run || brew_available?
+
+  run("brew", "tap", tap_name(data), dry_run: options.dry_run)
+  install_formulae(data, options)
+  install_casks(data, options)
+end
+
+def command_update(data, options)
+  abort "brew is required" unless options.dry_run || brew_available?
+
+  run("brew", "update", dry_run: options.dry_run)
+  command_install(data, options)
+  upgrade_formulae(data, options)
+  upgrade_casks(data, options)
+end
+
+def command_list(data, options)
+  puts "Tap: #{tap_name(data)}"
+  puts
+  puts "Formulae:"
+  required_formulae(data).each { |item| puts "  #{item_name(item)} -> #{item["command"] || installed_name(item)}" }
+  if options.include_optional && optional_formulae(data).any?
+    puts "Optional formulae:"
+    optional_formulae(data).each { |item| puts "  #{item_name(item)}" }
+  end
+
+  return unless options.include_casks
+
+  puts "Casks:"
+  required_casks(data).each { |item| puts "  #{item_name(item)}" }
+  if options.include_optional && optional_casks(data).any?
+    puts "Optional casks:"
+    optional_casks(data).each { |item| puts "  #{item_name(item)}" }
+  end
+end
+
+def duplicate_names(items)
+  names = items.map { |item| item_name(item) }
+  names.group_by(&:itself).select { |_name, occurrences| occurrences.size > 1 }.keys
+end
+
+def repo_entries(dir)
+  path = File.join(ROOT, dir)
+  return nil unless Dir.exist?(path)
+
+  Dir.glob(File.join(path, "*.rb")).map { |entry| File.basename(entry, ".rb") }.sort
+end
+
+def print_install_state(data, options)
+  return unless brew_available?
+
+  puts
+  puts "Install state:"
+  required_formulae(data).each do |item|
+    name = installed_name(item)
+    puts "  formula #{name}: #{formula_installed?(name) ? "installed" : "missing"}"
+  end
+  return unless options.include_casks
+
+  required_casks(data).each do |item|
+    name = installed_name(item)
+    puts "  cask #{name}: #{cask_installed?(name) ? "installed" : "missing"}"
+  end
+end
+
+def command_doctor(data, options)
+  failures = []
+  formulae = required_formulae(data)
+  casks = required_casks(data)
+
+  duplicate_formulae = duplicate_names(formulae)
+  duplicate_casks = duplicate_names(casks)
+  failures << "duplicate formulae in tools.yaml: #{duplicate_formulae.join(", ")}" if duplicate_formulae.any?
+  failures << "duplicate casks in tools.yaml: #{duplicate_casks.join(", ")}" if duplicate_casks.any?
+
+  manifest_formulae = formulae.map { |item| item_name(item) }.sort
+  manifest_casks = casks.map { |item| item_name(item) }.sort
+  repo_formulae = repo_entries("Formula")
+  repo_casks = repo_entries("Casks")
+
+  missing_formulae = repo_formulae ? repo_formulae - manifest_formulae : []
+  stale_formulae = repo_formulae ? manifest_formulae - repo_formulae : []
+  missing_casks = repo_casks ? repo_casks - manifest_casks : []
+  stale_casks = repo_casks ? manifest_casks - repo_casks : []
+
+  failures << "Formula/*.rb missing from tools.yaml: #{missing_formulae.join(", ")}" if missing_formulae.any?
+  failures << "tools.yaml formulae missing Formula/*.rb: #{stale_formulae.join(", ")}" if stale_formulae.any?
+  failures << "Casks/*.rb missing from tools.yaml: #{missing_casks.join(", ")}" if missing_casks.any?
+  failures << "tools.yaml casks missing Casks/*.rb: #{stale_casks.join(", ")}" if stale_casks.any?
+
+  if failures.empty?
+    puts "tools.yaml matches Formula/ and Casks/"
+    puts "manifest: #{MANIFEST_PATH}"
+  else
+    warn failures.join("\n")
+  end
+
+  print_install_state(data, options)
+  exit(failures.empty? ? 0 : 1)
+end
+
+command, options = parse_args(ARGV)
+data = manifest
+
+case command
+when "install"
+  command_install(data, options)
+when "update"
+  command_update(data, options)
+when "doctor"
+  command_doctor(data, options)
+when "list"
+  command_list(data, options)
+end

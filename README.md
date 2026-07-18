@@ -4,9 +4,34 @@ Homebrew tap for Jamal Arcana tools.
 
 ## Install
 
+Install or update the whole tap-managed ecosystem from this repo's manifest:
+
+```bash
+brew install Noswad123/jamal-arcana/arcana
+arcana install
+arcana update
+```
+
+Preview changes before running them:
+
+```bash
+arcana update --dry-run
+```
+
+Check that `tools.yaml`, `Formula/`, and `Casks/` are in sync:
+
+```bash
+arcana doctor
+```
+
+Or install tools individually:
+
 ```bash
 brew tap Noswad123/jamal-arcana
+brew install arcana
 brew install coven
+brew install djinn
+brew install kitsune
 brew install mw
 brew install wisp
 brew install waystone
@@ -16,7 +41,10 @@ brew install --cask mind-weaver
 Or install directly:
 
 ```bash
+brew install Noswad123/jamal-arcana/arcana
 brew install Noswad123/jamal-arcana/coven
+brew install Noswad123/jamal-arcana/djinn
+brew install Noswad123/jamal-arcana/kitsune
 brew install Noswad123/jamal-arcana/mw
 brew install Noswad123/jamal-arcana/wisp
 brew install Noswad123/jamal-arcana/waystone
@@ -25,7 +53,10 @@ brew install --cask Noswad123/jamal-arcana/mind-weaver
 
 ## Formulae
 
+- `arcana` — install and update the Jamal Arcana Homebrew ecosystem
 - `coven` — create and operate magic-themed multi-agent workspaces
+- `djinn` — local-first companion for OpenCode and other AI coding agents
+- `kitsune` — composable multiplexer kits for named working sessions
 - `mw` — local-first notes and todos CLI
 - `wisp` — open a command in a floating kitty terminal window
 - `waystone` — save, fuzzy-pick, copy, and open frequently used paths
@@ -34,7 +65,7 @@ brew install --cask Noswad123/jamal-arcana/mind-weaver
 
 - `mind-weaver` — native macOS app shell for MindWeaver
 
-`coven` currently tracks the `main` branch until its first tagged release.
+`arcana`, `coven`, and `kitsune` currently track the `main` branch until their first tagged releases.
 
 ## MindWeaver native app dependency strategy
 
