@@ -6,10 +6,16 @@ class Waystone < Formula
   license "MIT"
   head "https://github.com/Noswad123/waystone.git", branch: "main"
 
+  depends_on "rust" => :build
   depends_on "fzf"
 
   def install
-    bin.install "bin/waystone"
+    if File.exist?("Cargo.toml")
+      system "cargo", "install", *std_cargo_args
+    else
+      bin.install "bin/waystone"
+    end
+
     zsh_completion.install "completions/zsh/_waystone"
     bash_completion.install "completions/bash/waystone"
   end
