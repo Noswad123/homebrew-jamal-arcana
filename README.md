@@ -34,6 +34,8 @@ Check that `tools.yaml`, `Formula/`, and `Casks/` are in sync:
 arcana doctor
 ```
 
+`doctor` also reports whether managed formulae/casks are missing or stale.
+
 Or install tools individually:
 
 ```bash

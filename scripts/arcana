@@ -4,6 +4,9 @@ exec ruby --disable=gems -x "$0" "$@"
 # frozen_string_literal: true
 
 require "optparse"
+require "digest"
+require "English"
+require "set"
 require "yaml"
 
 def candidate_manifest_paths
@@ -116,6 +119,13 @@ def run(*args, dry_run: false, allow_failure: false)
   abort "command failed: #{args.join(" ")}"
 end
 
+def capture(*args)
+  output = IO.popen(args, err: File::NULL, &:read)
+  return nil unless $CHILD_STATUS.success?
+
+  output.strip
+end
+
 def brew_available?
   system("brew", "--version", out: File::NULL, err: File::NULL)
 end
@@ -126,6 +136,36 @@ end
 
 def cask_installed?(name)
   system("brew", "list", "--cask", name, out: File::NULL, err: File::NULL)
+end
+
+def outdated_names(kind)
+  return Set.new unless brew_available?
+
+  output = capture("brew", "outdated", kind)
+  return Set.new if output.nil? || output.empty?
+
+  output.split(/\s+/).map { |name| File.basename(name) }.to_set
+end
+
+def tap_repo(tap)
+  return nil unless brew_available?
+
+  repo = capture("brew", "--repo", tap)
+  return nil if repo.nil? || repo.empty?
+
+  repo
+end
+
+def arcana_self_stale?(data)
+  repo = tap_repo(tap_name(data))
+  return false unless repo
+
+  tap_script = File.join(repo, "scripts", "arcana")
+  current_script = File.realpath($PROGRAM_NAME)
+  return false unless File.exist?(tap_script) && File.exist?(current_script)
+  return false if File.realpath(tap_script) == current_script
+
+  Digest::SHA256.file(tap_script).hexdigest != Digest::SHA256.file(current_script).hexdigest
 end
 
 def install_formulae(data, options, skip_names: [])
@@ -267,17 +307,37 @@ end
 def print_install_state(data, options)
   return unless brew_available?
 
+  outdated_formulae = outdated_names("--formula")
+  outdated_casks = outdated_names("--cask")
+  self_stale = arcana_self_stale?(data)
+
   puts
   puts "Install state:"
   required_formulae(data).each do |item|
     name = installed_name(item)
-    puts "  formula #{name}: #{formula_installed?(name) ? "installed" : "missing"}"
+    state = if formula_installed?(name)
+              if item_name(item) == SELF_FORMULA && self_stale
+                "stale (run arcana self-update)"
+              elsif outdated_formulae.include?(name)
+                "stale (run arcana update)"
+              else
+                "installed"
+              end
+            else
+              "missing"
+            end
+    puts "  formula #{name}: #{state}"
   end
   return unless options.include_casks
 
   required_casks(data).each do |item|
     name = installed_name(item)
-    puts "  cask #{name}: #{cask_installed?(name) ? "installed" : "missing"}"
+    state = if cask_installed?(name)
+              outdated_casks.include?(name) ? "stale (run arcana update)" : "installed"
+            else
+              "missing"
+            end
+    puts "  cask #{name}: #{state}"
   end
 end
 
