@@ -1,4 +1,6 @@
-#!/usr/bin/env ruby
+#!/bin/sh
+exec ruby --disable=gems -x "$0" "$@"
+#!ruby
 # frozen_string_literal: true
 
 require "optparse"
@@ -15,6 +17,7 @@ end
 
 MANIFEST_PATH = candidate_manifest_paths.find { |path| File.exist?(path) } || candidate_manifest_paths.first
 ROOT = File.dirname(MANIFEST_PATH)
+SELF_FORMULA = "arcana"
 
 Options = Struct.new(:dry_run, :include_optional, :include_casks, keyword_init: true)
 
@@ -25,6 +28,8 @@ def usage
     Commands:
       install   Tap this repo and install every required tool from tools.yaml
       update    Update Homebrew, install missing tools, and upgrade installed tools
+      self-update
+                Update/reinstall arcana itself, then use the new version next run
       doctor    Check tools.yaml against Formula/ and Casks/ and report install state
       list      Print tools from tools.yaml
 
@@ -48,7 +53,7 @@ def parse_args(argv)
   end
 
   command = argv.shift
-  unless %w[install update doctor list].include?(command)
+  unless %w[install update self-update doctor list].include?(command)
     warn usage
     exit 2
   end
@@ -98,6 +103,10 @@ def package_name(tap, item)
   name.include?("/") ? name : "#{tap}/#{name}"
 end
 
+def self_item(data)
+  required_formulae(data).find { |item| item_name(item) == SELF_FORMULA }
+end
+
 def run(*args, dry_run: false, allow_failure: false)
   puts "$ #{args.join(" ")}"
   return true if dry_run
@@ -119,12 +128,14 @@ def cask_installed?(name)
   system("brew", "list", "--cask", name, out: File::NULL, err: File::NULL)
 end
 
-def install_formulae(data, options)
+def install_formulae(data, options, skip_names: [])
   tap = tap_name(data)
   formulae = required_formulae(data)
   formulae += optional_formulae(data) if options.include_optional
 
   formulae.each do |item|
+    next if skip_names.include?(item_name(item))
+
     name = installed_name(item)
     if !options.dry_run && formula_installed?(name)
       puts "formula #{name} already installed"
@@ -151,12 +162,14 @@ def install_casks(data, options)
   end
 end
 
-def upgrade_formulae(data, options)
+def upgrade_formulae(data, options, skip_names: [])
   tap = tap_name(data)
   formulae = required_formulae(data)
   formulae += optional_formulae(data) if options.include_optional
 
   formulae.each do |item|
+    next if skip_names.include?(item_name(item))
+
     name = installed_name(item)
     next unless options.dry_run || formula_installed?(name)
 
@@ -187,12 +200,35 @@ def command_install(data, options)
   install_casks(data, options)
 end
 
+def command_self_update(data, options, brew_updated: false, tap_ensured: false)
+  abort "brew is required" unless options.dry_run || brew_available?
+
+  item = self_item(data)
+  abort "#{SELF_FORMULA} is missing from tools.yaml" unless item
+
+  run("brew", "update", dry_run: options.dry_run) unless brew_updated
+  run("brew", "tap", tap_name(data), dry_run: options.dry_run) unless tap_ensured
+
+  package = package_name(tap_name(data), item)
+  installed = !options.dry_run && formula_installed?(installed_name(item))
+  if installed || options.dry_run
+    run("brew", "reinstall", package, dry_run: options.dry_run)
+  else
+    run("brew", "install", package, dry_run: options.dry_run)
+  end
+
+  puts "arcana updated; run arcana again to use the refreshed code" unless options.dry_run
+end
+
 def command_update(data, options)
   abort "brew is required" unless options.dry_run || brew_available?
 
   run("brew", "update", dry_run: options.dry_run)
-  command_install(data, options)
-  upgrade_formulae(data, options)
+  run("brew", "tap", tap_name(data), dry_run: options.dry_run)
+  command_self_update(data, options, brew_updated: true, tap_ensured: true)
+  install_formulae(data, options, skip_names: [SELF_FORMULA])
+  install_casks(data, options)
+  upgrade_formulae(data, options, skip_names: [SELF_FORMULA])
   upgrade_casks(data, options)
 end
 
@@ -289,6 +325,8 @@ when "install"
   command_install(data, options)
 when "update"
   command_update(data, options)
+when "self-update"
+  command_self_update(data, options)
 when "doctor"
   command_doctor(data, options)
 when "list"

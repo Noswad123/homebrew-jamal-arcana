@@ -12,10 +12,20 @@ arcana install
 arcana update
 ```
 
+`arcana update` also refreshes `arcana` itself. Because the currently running
+process keeps using the code it started with, run `arcana` again after an update
+to use newly installed Arcana behavior immediately.
+
 Preview changes before running them:
 
 ```bash
 arcana update --dry-run
+```
+
+Refresh only the global Arcana command:
+
+```bash
+arcana self-update
 ```
 
 Check that `tools.yaml`, `Formula/`, and `Casks/` are in sync:
