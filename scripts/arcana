@@ -91,6 +91,12 @@ def optional_casks(data)
   data.dig("optional", "casks") || []
 end
 
+def formula_items(data, options)
+  formulae = required_formulae(data)
+  formulae += optional_formulae(data) if options.include_optional
+  formulae
+end
+
 def item_name(item)
   item.fetch("name")
 end
@@ -104,6 +110,10 @@ def package_name(tap, item)
 
   name = item_name(item)
   name.include?("/") ? name : "#{tap}/#{name}"
+end
+
+def reinstall_on_update?(item)
+  item["reinstall_on_update"] == true
 end
 
 def self_item(data)
@@ -170,10 +180,8 @@ end
 
 def install_formulae(data, options, skip_names: [])
   tap = tap_name(data)
-  formulae = required_formulae(data)
-  formulae += optional_formulae(data) if options.include_optional
 
-  formulae.each do |item|
+  formula_items(data, options).each do |item|
     next if skip_names.include?(item_name(item))
 
     name = installed_name(item)
@@ -202,18 +210,22 @@ def install_casks(data, options)
   end
 end
 
-def upgrade_formulae(data, options, skip_names: [])
+def upgrade_formulae(data, options, skip_names: [], only_names: nil)
   tap = tap_name(data)
-  formulae = required_formulae(data)
-  formulae += optional_formulae(data) if options.include_optional
 
-  formulae.each do |item|
+  formula_items(data, options).each do |item|
     next if skip_names.include?(item_name(item))
+    next if only_names && !only_names.include?(item_name(item))
 
     name = installed_name(item)
     next unless options.dry_run || formula_installed?(name)
 
-    run("brew", "upgrade", package_name(tap, item), dry_run: options.dry_run, allow_failure: true)
+    package = package_name(tap, item)
+    if reinstall_on_update?(item)
+      run("brew", "reinstall", package, dry_run: options.dry_run)
+    else
+      run("brew", "upgrade", package, dry_run: options.dry_run, allow_failure: true)
+    end
   end
 end
 
@@ -263,12 +275,20 @@ end
 def command_update(data, options)
   abort "brew is required" unless options.dry_run || brew_available?
 
+  installed_before = nil
+  unless options.dry_run
+    installed_before = formula_items(data, options)
+      .select { |item| formula_installed?(installed_name(item)) }
+      .map { |item| item_name(item) }
+      .to_set
+  end
+
   run("brew", "update", dry_run: options.dry_run)
   run("brew", "tap", tap_name(data), dry_run: options.dry_run)
   command_self_update(data, options, brew_updated: true, tap_ensured: true)
   install_formulae(data, options, skip_names: [SELF_FORMULA])
   install_casks(data, options)
-  upgrade_formulae(data, options, skip_names: [SELF_FORMULA])
+  upgrade_formulae(data, options, skip_names: [SELF_FORMULA], only_names: installed_before)
   upgrade_casks(data, options)
 end
 

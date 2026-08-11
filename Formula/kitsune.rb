@@ -12,6 +12,6 @@ class Kitsune < Formula
   end
 
   test do
-    assert_match "Kitsune: composable multiplexer kits", shell_output("#{bin}/kit --help")
+    assert_match "terminal workspace manager", shell_output("#{bin}/kitsune --help")
   end
 end
