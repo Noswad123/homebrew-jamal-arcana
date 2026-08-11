@@ -116,6 +116,14 @@ def reinstall_on_update?(item)
   item["reinstall_on_update"] == true
 end
 
+def refresh_formula(tap, item, options)
+  name = installed_name(item)
+  package = package_name(tap, item)
+
+  run("brew", "uninstall", "--ignore-dependencies", name, dry_run: options.dry_run)
+  run("brew", "install", package, dry_run: options.dry_run)
+end
+
 def self_item(data)
   required_formulae(data).find { |item| item_name(item) == SELF_FORMULA }
 end
@@ -124,7 +132,8 @@ def run(*args, dry_run: false, allow_failure: false)
   puts "$ #{args.join(" ")}"
   return true if dry_run
 
-  return true if system(*args) || allow_failure
+  return true if system(*args)
+  return false if allow_failure
 
   abort "command failed: #{args.join(" ")}"
 end
@@ -220,10 +229,10 @@ def upgrade_formulae(data, options, skip_names: [], only_names: nil)
     name = installed_name(item)
     next unless options.dry_run || formula_installed?(name)
 
-    package = package_name(tap, item)
     if reinstall_on_update?(item)
-      run("brew", "reinstall", package, dry_run: options.dry_run)
+      refresh_formula(tap, item, options)
     else
+      package = package_name(tap, item)
       run("brew", "upgrade", package, dry_run: options.dry_run, allow_failure: true)
     end
   end
@@ -272,11 +281,26 @@ def command_self_update(data, options, brew_updated: false, tap_ensured: false)
   puts "arcana updated; run arcana again to use the refreshed code" unless options.dry_run
 end
 
+def update_args(options)
+  args = ["update"]
+  args << "--include-optional" if options.include_optional
+  args << "--no-casks" unless options.include_casks
+  args
+end
+
+def restart_update_with_refreshed_arcana(options)
+  return if options.dry_run || ENV["ARCANA_UPDATE_REEXECED"] == "1"
+
+  puts "arcana changed; restarting update with the refreshed command"
+  ENV["ARCANA_UPDATE_REEXECED"] = "1"
+  exec($PROGRAM_NAME, *update_args(options))
+end
+
 def command_update(data, options)
   abort "brew is required" unless options.dry_run || brew_available?
 
   installed_before = nil
-  unless options.dry_run
+  if brew_available?
     installed_before = formula_items(data, options)
       .select { |item| formula_installed?(installed_name(item)) }
       .map { |item| item_name(item) }
@@ -285,7 +309,9 @@ def command_update(data, options)
 
   run("brew", "update", dry_run: options.dry_run)
   run("brew", "tap", tap_name(data), dry_run: options.dry_run)
+  self_stale = !options.dry_run && arcana_self_stale?(data)
   command_self_update(data, options, brew_updated: true, tap_ensured: true)
+  restart_update_with_refreshed_arcana(options) if self_stale
   install_formulae(data, options, skip_names: [SELF_FORMULA])
   install_casks(data, options)
   upgrade_formulae(data, options, skip_names: [SELF_FORMULA], only_names: installed_before)
