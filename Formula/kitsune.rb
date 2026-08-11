@@ -6,8 +6,13 @@ class Kitsune < Formula
   license "MIT"
 
   depends_on "rust" => :build
+  depends_on "zig@0.15" => :build
 
   def install
+    ENV["ZIG"] = Formula["zig@0.15"].opt_bin/"zig"
+    ENV["ZIG_GLOBAL_CACHE_DIR"] = buildpath/".zig-cache"
+    ENV["ZIG_LOCAL_CACHE_DIR"] = buildpath/".zig-cache"
+
     system "cargo", "install", *std_cargo_args
   end
 
