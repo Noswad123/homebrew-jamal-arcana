@@ -5,13 +5,16 @@ class Djinn < Formula
   version "0.1.0-dev"
   license "MIT"
 
+  depends_on "bun" => :build
   depends_on "rust" => :build
 
   def install
     system "cargo", "install", *std_cargo_args(path: "crates/djinn-cli")
+    system "make", "install-ui", "INSTALL_DIR=#{bin}"
   end
 
   test do
     assert_match "Local-first companion", shell_output("#{bin}/djinn --help")
+    system "#{bin}/djinn-ui", "--version"
   end
 end
