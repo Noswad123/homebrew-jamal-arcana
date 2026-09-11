@@ -175,16 +175,23 @@ def tap_repo(tap)
   repo
 end
 
+def file_stale?(fresh_path, current_path)
+  return false unless File.exist?(fresh_path) && File.exist?(current_path)
+  return false if File.realpath(fresh_path) == File.realpath(current_path)
+
+  Digest::SHA256.file(fresh_path).hexdigest != Digest::SHA256.file(current_path).hexdigest
+end
+
 def arcana_self_stale?(data)
   repo = tap_repo(tap_name(data))
   return false unless repo
 
   tap_script = File.join(repo, "scripts", "arcana")
   current_script = File.realpath($PROGRAM_NAME)
-  return false unless File.exist?(tap_script) && File.exist?(current_script)
-  return false if File.realpath(tap_script) == current_script
+  return true if file_stale?(tap_script, current_script)
 
-  Digest::SHA256.file(tap_script).hexdigest != Digest::SHA256.file(current_script).hexdigest
+  tap_manifest = File.join(repo, "tools.yaml")
+  !ENV["ARCANA_TOOLS_YAML"] && file_stale?(tap_manifest, MANIFEST_PATH)
 end
 
 def install_formulae(data, options, skip_names: [])

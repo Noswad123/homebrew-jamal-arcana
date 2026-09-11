@@ -77,9 +77,10 @@ brew install --cask Noswad123/jamal-arcana/mind-weaver
 
 - `mind-weaver` — native macOS app shell for MindWeaver
 
-`arcana`, `coven`, `djinn`, and `kitsune` currently track the `main` branch until their first tagged releases.
-`arcana update` reinstalls those branch-tracking tools so local installs pick up
-new commits even when their formula version is unchanged.
+`arcana`, `coven`, `djinn`, `kitsune`, and `waystone` currently track the `main`
+branch until their first tagged releases. `arcana update` reinstalls those
+branch-tracking tools so local installs pick up new commits even when their
+formula version is unchanged.
 
 ## MindWeaver native app dependency strategy
 

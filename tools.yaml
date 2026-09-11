@@ -21,6 +21,7 @@ formulae:
     description: Local-first notes, todos, and optional Hive Mind sync CLI.
   - name: waystone
     command: waystone
+    reinstall_on_update: true
     description: Save, fuzzy-pick, copy, and open frequently used paths.
   - name: wisp
     command: wisp
