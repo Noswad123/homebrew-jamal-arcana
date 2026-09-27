@@ -7,7 +7,7 @@ formulae:
   - name: coven
     command: coven
     reinstall_on_update: true
-    description: Magic-themed multi-agent workspaces backed by local files and tmux.
+    description: Magic-themed multi-agent workspaces backed by local files and kitsune.
   - name: djinn
     command: djinn
     reinstall_on_update: true
@@ -30,6 +30,7 @@ formulae:
 casks:
   - name: mind-weaver
     app: MindWeaver.app
+    platforms: [macos]
     description: Native macOS app shell for MindWeaver.
 
 optional:
@@ -40,7 +41,9 @@ optional:
   casks:
     - name: kitty
       package: kitty
+      platforms: [macos]
       description: Optional terminal backend used by wisp workflows.
     - name: nikitabobko/tap/aerospace
       installed_name: aerospace
+      platforms: [macos]
       description: Optional window manager used by wisp floating-window workflows.

@@ -1,12 +1,12 @@
 class Coven < Formula
-  desc "Magic-themed multi-agent workspaces backed by local files and tmux"
+  desc "Magic-themed multi-agent workspaces backed by local files and kitsune"
   homepage "https://github.com/Noswad123/coven"
   url "https://github.com/Noswad123/coven.git", branch: "main"
   version "0.1.0-dev"
   license "MIT"
 
+  depends_on "kitsune"
   depends_on "python@3.13"
-  depends_on "tmux"
 
   def install
     libexec.install "bin", "runner", "examples", "README.md", "LICENSE"
@@ -15,7 +15,10 @@ class Coven < Formula
 
   def caveats
     <<~EOS
-      coven launches tmux workspaces through the existing `tmux` runner.
+      coven launches workspaces through kitsune by default.
+
+      tmux can still be used by coven configurations that target the legacy
+      tmux runner; install tmux separately if you use that backend.
     EOS
   end
 

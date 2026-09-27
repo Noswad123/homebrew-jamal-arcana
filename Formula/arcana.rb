@@ -5,6 +5,10 @@ class Arcana < Formula
   version "0.1.0-dev"
   license "MIT"
 
+  on_linux do
+    depends_on "ruby"
+  end
+
   def install
     bin.install "scripts/arcana"
     pkgshare.install "tools.yaml", "Formula", "Casks"

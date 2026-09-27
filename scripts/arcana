@@ -6,6 +6,7 @@ exec ruby --disable=gems -x "$0" "$@"
 require "optparse"
 require "digest"
 require "English"
+require "rbconfig"
 require "set"
 require "yaml"
 
@@ -39,8 +40,34 @@ def usage
     Options:
       --dry-run            Print brew commands without running them
       --include-optional   Include optional helper tools
-      --no-casks           Skip cask entries
+      --no-casks           Skip cask entries; casks are also skipped on Linuxbrew
   USAGE
+end
+
+def current_platform
+  override = ENV["ARCANA_PLATFORM"]
+  return override.downcase if override && !override.empty?
+
+  host_os = RbConfig::CONFIG["host_os"]
+  return "macos" if host_os.include?("darwin")
+  return "linux" if host_os.include?("linux")
+
+  host_os
+end
+
+def casks_supported?
+  current_platform == "macos"
+end
+
+def casks_enabled?(options)
+  options.include_casks && casks_supported?
+end
+
+def print_casks_skipped(options)
+  return unless options.include_casks
+  return if casks_supported?
+
+  puts "Skipping casks on #{current_platform}; Homebrew casks are macOS-only."
 end
 
 def parse_args(argv)
@@ -91,10 +118,38 @@ def optional_casks(data)
   data.dig("optional", "casks") || []
 end
 
+def platform_alias(platform)
+  case platform.to_s.downcase
+  when "darwin", "osx", "mac"
+    "macos"
+  when "linuxbrew"
+    "linux"
+  else
+    platform.to_s.downcase
+  end
+end
+
+def platform_supported?(item)
+  platforms = item["platforms"] || item["platform"]
+  return true if platforms.nil?
+
+  Array(platforms).map { |platform| platform_alias(platform) }.include?(platform_alias(current_platform))
+end
+
+def supported_items(items)
+  items.select { |item| platform_supported?(item) }
+end
+
 def formula_items(data, options)
   formulae = required_formulae(data)
   formulae += optional_formulae(data) if options.include_optional
-  formulae
+  supported_items(formulae)
+end
+
+def cask_items(data, options)
+  casks = required_casks(data)
+  casks += optional_casks(data) if options.include_optional
+  supported_items(casks)
 end
 
 def item_name(item)
@@ -210,11 +265,13 @@ def install_formulae(data, options, skip_names: [])
 end
 
 def install_casks(data, options)
-  return unless options.include_casks
+  unless casks_enabled?(options)
+    print_casks_skipped(options)
+    return
+  end
 
   tap = tap_name(data)
-  casks = required_casks(data)
-  casks += optional_casks(data) if options.include_optional
+  casks = cask_items(data, options)
 
   casks.each do |item|
     name = installed_name(item)
@@ -246,11 +303,10 @@ def upgrade_formulae(data, options, skip_names: [], only_names: nil)
 end
 
 def upgrade_casks(data, options)
-  return unless options.include_casks
+  return unless casks_enabled?(options)
 
   tap = tap_name(data)
-  casks = required_casks(data)
-  casks += optional_casks(data) if options.include_optional
+  casks = cask_items(data, options)
 
   casks.each do |item|
     name = installed_name(item)
@@ -327,21 +383,25 @@ end
 
 def command_list(data, options)
   puts "Tap: #{tap_name(data)}"
+  puts "Platform: #{current_platform}"
   puts
   puts "Formulae:"
-  required_formulae(data).each { |item| puts "  #{item_name(item)} -> #{item["command"] || installed_name(item)}" }
+  supported_items(required_formulae(data)).each { |item| puts "  #{item_name(item)} -> #{item["command"] || installed_name(item)}" }
   if options.include_optional && optional_formulae(data).any?
     puts "Optional formulae:"
-    optional_formulae(data).each { |item| puts "  #{item_name(item)}" }
+    supported_items(optional_formulae(data)).each { |item| puts "  #{item_name(item)}" }
   end
 
-  return unless options.include_casks
+  unless casks_enabled?(options)
+    print_casks_skipped(options)
+    return
+  end
 
   puts "Casks:"
-  required_casks(data).each { |item| puts "  #{item_name(item)}" }
+  supported_items(required_casks(data)).each { |item| puts "  #{item_name(item)}" }
   if options.include_optional && optional_casks(data).any?
     puts "Optional casks:"
-    optional_casks(data).each { |item| puts "  #{item_name(item)}" }
+    supported_items(optional_casks(data)).each { |item| puts "  #{item_name(item)}" }
   end
 end
 
@@ -361,12 +421,12 @@ def print_install_state(data, options)
   return unless brew_available?
 
   outdated_formulae = outdated_names("--formula")
-  outdated_casks = outdated_names("--cask")
+  outdated_casks = casks_enabled?(options) ? outdated_names("--cask") : Set.new
   self_stale = arcana_self_stale?(data)
 
   puts
   puts "Install state:"
-  required_formulae(data).each do |item|
+  supported_items(required_formulae(data)).each do |item|
     name = installed_name(item)
     state = if formula_installed?(name)
               if item_name(item) == SELF_FORMULA && self_stale
@@ -381,9 +441,12 @@ def print_install_state(data, options)
             end
     puts "  formula #{name}: #{state}"
   end
-  return unless options.include_casks
+  unless casks_enabled?(options)
+    print_casks_skipped(options)
+    return
+  end
 
-  required_casks(data).each do |item|
+  supported_items(required_casks(data)).each do |item|
     name = installed_name(item)
     state = if cask_installed?(name)
               outdated_casks.include?(name) ? "stale (run arcana update)" : "installed"

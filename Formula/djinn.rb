@@ -11,6 +11,9 @@ class Djinn < Formula
   def install
     system "cargo", "install", *std_cargo_args(path: "crates/djinn-cli")
     system "make", "install-ui", "INSTALL_DIR=#{bin}"
+
+    libexec.install bin/"djinn" => "djinn"
+    (bin/"djinn").write_env_script libexec/"djinn", DJINN_UI_BIN: opt_bin/"djinn-ui"
   end
 
   test do

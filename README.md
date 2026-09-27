@@ -2,6 +2,9 @@
 
 Homebrew tap for Jamal Arcana tools.
 
+This tap supports macOS Homebrew and personal Linuxbrew installs. On Linux,
+`arcana` installs formulae and automatically skips macOS-only casks.
+
 ## Install
 
 Install or update the whole tap-managed ecosystem from this repo's manifest:
@@ -10,6 +13,55 @@ Install or update the whole tap-managed ecosystem from this repo's manifest:
 brew install Noswad123/jamal-arcana/arcana
 arcana install
 arcana update
+```
+
+On Linux, install Homebrew/Linuxbrew first, then run the same commands. The
+native MindWeaver app cask and optional GUI casks are macOS-only and are skipped
+automatically; use `--no-casks` to make that explicit in dry runs or scripts.
+
+### Bootstrap a Linux machine
+
+Install Linuxbrew/Homebrew:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Load Homebrew into the current shell and add the same line to your shell startup
+file, such as `~/.zshrc` or `~/.bashrc`:
+
+```bash
+eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+```
+
+For a no-sudo, user-local install, use `~/.linuxbrew` instead:
+
+```bash
+mkdir -p "$HOME/.linuxbrew" "$HOME/.linuxbrew/bin"
+git clone https://github.com/Homebrew/brew "$HOME/.linuxbrew/Homebrew"
+ln -sf ../Homebrew/bin/brew "$HOME/.linuxbrew/bin/brew"
+eval "$($HOME/.linuxbrew/bin/brew shellenv)"
+```
+
+Then install Arcana and the managed CLI tools:
+
+```bash
+brew install Noswad123/jamal-arcana/arcana
+arcana install
+```
+
+Check the install and update later:
+
+```bash
+arcana doctor
+arcana update
+```
+
+Preview the Linux plan without changing anything:
+
+```bash
+arcana install --dry-run
+arcana update --dry-run
 ```
 
 `arcana update` also refreshes `arcana` itself. Because the currently running
@@ -66,7 +118,7 @@ brew install --cask Noswad123/jamal-arcana/mind-weaver
 ## Formulae
 
 - `arcana` — install and update the Jamal Arcana Homebrew ecosystem
-- `coven` — create and operate magic-themed multi-agent workspaces
+- `coven` — create and operate magic-themed multi-agent workspaces backed by kitsune
 - `djinn` — local-first companion for OpenCode and other AI coding agents
 - `kitsune` — composable multiplexer kits for named working sessions
 - `mw` — local-first notes and todos CLI
@@ -76,6 +128,8 @@ brew install --cask Noswad123/jamal-arcana/mind-weaver
 ## Casks
 
 - `mind-weaver` — native macOS app shell for MindWeaver
+
+Casks are macOS-only. Linuxbrew installs only the formulae from this manifest.
 
 `arcana`, `coven`, `djinn`, `kitsune`, and `waystone` currently track the `main`
 branch until their first tagged releases. `arcana update` reinstalls those
