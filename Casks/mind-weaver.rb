@@ -1,6 +1,6 @@
 cask "mind-weaver" do
-  version "0.1.0"
-  sha256 "62a3e11e68ba41839702d59d7ce97634508201b07ef64fe64919c5f2999b0b55"
+  version "0.2.0"
+  sha256 "84388dcedda770d71b1d562e7c8c92af4827c310c92e9a81f365cc99eb51b6db"
 
   url "https://github.com/Noswad123/mind-weaver-swift/releases/download/v#{version}/MindWeaver-#{version}.zip",
       verified: "github.com/Noswad123/mind-weaver-swift/"
