@@ -25,7 +25,12 @@ formulae:
     description: Save, fuzzy-pick, copy, and open frequently used paths.
   - name: wisp
     command: wisp
-    description: Open commands in floating kitty terminal windows.
+    reinstall_on_update: true
+    description: Command palette and floating utility surface launcher.
+  - name: wyrm
+    command: wyrm
+    reinstall_on_update: true
+    description: Dragon-hoard terminal file manager for browsing and managing local files.
 
 casks:
   - name: mind-weaver
