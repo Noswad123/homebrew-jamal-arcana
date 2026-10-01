@@ -86,7 +86,8 @@ Check that `tools.yaml`, `Formula/`, and `Casks/` are in sync:
 arcana doctor
 ```
 
-`doctor` also reports whether managed formulae/casks are missing or stale.
+`doctor` also reports whether managed formulae/casks are missing, stale, or
+marked for refresh on each `arcana update`.
 
 Or install tools individually:
 
@@ -131,10 +132,10 @@ brew install --cask Noswad123/jamal-arcana/mind-weaver
 
 Casks are macOS-only. Linuxbrew installs only the formulae from this manifest.
 
-`arcana`, `coven`, `djinn`, `kitsune`, and `waystone` currently track the `main`
-branch until their first tagged releases. `arcana update` reinstalls those
-branch-tracking tools so local installs pick up new commits even when their
-formula version is unchanged.
+Some formulae currently track the `main` branch until their first tagged
+releases. `arcana update` reinstalls only those tools marked
+`reinstall_on_update: true`, upgrades Homebrew-outdated formulae/casks, and
+installs missing manifest entries. Other installed tools are left alone.
 
 ## MindWeaver native app dependency strategy
 

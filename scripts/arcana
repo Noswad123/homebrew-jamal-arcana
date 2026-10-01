@@ -179,6 +179,45 @@ def refresh_formula(tap, item, options)
   run("brew", "install", package, dry_run: options.dry_run)
 end
 
+def installed_formula_item_names(data, options)
+  return formula_items(data, options).map { |item| item_name(item) }.to_set if options.dry_run && !brew_available?
+
+  formula_items(data, options)
+    .select { |item| formula_installed?(installed_name(item)) }
+    .map { |item| item_name(item) }
+    .to_set
+end
+
+def installed_cask_item_names(data, options)
+  return cask_items(data, options).map { |item| item_name(item) }.to_set if options.dry_run && !brew_available?
+
+  cask_items(data, options)
+    .select { |item| cask_installed?(installed_name(item)) }
+    .map { |item| item_name(item) }
+    .to_set
+end
+
+def formula_update_target_names(data, options, installed_names)
+  outdated_formulae = outdated_names("--formula")
+
+  formula_items(data, options)
+    .select { |item| installed_names.include?(item_name(item)) }
+    .select { |item| reinstall_on_update?(item) || outdated_formulae.include?(installed_name(item)) }
+    .map { |item| item_name(item) }
+    .to_set
+end
+
+def cask_update_target_names(data, options, installed_names)
+  return Set.new unless casks_enabled?(options)
+
+  outdated_casks = outdated_names("--cask")
+  cask_items(data, options)
+    .select { |item| installed_names.include?(item_name(item)) }
+    .select { |item| outdated_casks.include?(installed_name(item)) }
+    .map { |item| item_name(item) }
+    .to_set
+end
+
 def self_item(data)
   required_formulae(data).find { |item| item_name(item) == SELF_FORMULA }
 end
@@ -249,22 +288,30 @@ def arcana_self_stale?(data)
   !ENV["ARCANA_TOOLS_YAML"] && file_stale?(tap_manifest, MANIFEST_PATH)
 end
 
-def install_formulae(data, options, skip_names: [])
+def arcana_self_update_needed?(data)
+  item = self_item(data)
+  return arcana_self_stale?(data) unless item
+
+  !formula_installed?(installed_name(item)) || arcana_self_stale?(data)
+end
+
+def install_formulae(data, options, skip_names: [], quiet_installed: false)
   tap = tap_name(data)
 
   formula_items(data, options).each do |item|
     next if skip_names.include?(item_name(item))
 
     name = installed_name(item)
-    if !options.dry_run && formula_installed?(name)
-      puts "formula #{name} already installed"
+    installed = formula_installed?(name) if !options.dry_run || brew_available?
+    if installed
+      puts "formula #{name} already installed" unless quiet_installed
       next
     end
     run("brew", "install", package_name(tap, item), dry_run: options.dry_run)
   end
 end
 
-def install_casks(data, options)
+def install_casks(data, options, quiet_installed: false)
   unless casks_enabled?(options)
     print_casks_skipped(options)
     return
@@ -275,8 +322,9 @@ def install_casks(data, options)
 
   casks.each do |item|
     name = installed_name(item)
-    if !options.dry_run && cask_installed?(name)
-      puts "cask #{name} already installed"
+    installed = cask_installed?(name) if !options.dry_run || brew_available?
+    if installed
+      puts "cask #{name} already installed" unless quiet_installed
       next
     end
     run("brew", "install", "--cask", package_name(tap, item), dry_run: options.dry_run)
@@ -302,13 +350,15 @@ def upgrade_formulae(data, options, skip_names: [], only_names: nil)
   end
 end
 
-def upgrade_casks(data, options)
+def upgrade_casks(data, options, only_names: nil)
   return unless casks_enabled?(options)
 
   tap = tap_name(data)
   casks = cask_items(data, options)
 
   casks.each do |item|
+    next if only_names && !only_names.include?(item_name(item))
+
     name = installed_name(item)
     next unless options.dry_run || cask_installed?(name)
 
@@ -362,23 +412,20 @@ end
 def command_update(data, options)
   abort "brew is required" unless options.dry_run || brew_available?
 
-  installed_before = nil
-  if brew_available?
-    installed_before = formula_items(data, options)
-      .select { |item| formula_installed?(installed_name(item)) }
-      .map { |item| item_name(item) }
-      .to_set
-  end
+  installed_formulae_before = installed_formula_item_names(data, options)
+  installed_casks_before = installed_cask_item_names(data, options)
 
   run("brew", "update", dry_run: options.dry_run)
   run("brew", "tap", tap_name(data), dry_run: options.dry_run)
-  self_stale = !options.dry_run && arcana_self_stale?(data)
-  command_self_update(data, options, brew_updated: true, tap_ensured: true)
+  self_stale = arcana_self_update_needed?(data)
+  command_self_update(data, options, brew_updated: true, tap_ensured: true) if self_stale
   restart_update_with_refreshed_arcana(options) if self_stale
-  install_formulae(data, options, skip_names: [SELF_FORMULA])
-  install_casks(data, options)
-  upgrade_formulae(data, options, skip_names: [SELF_FORMULA], only_names: installed_before)
-  upgrade_casks(data, options)
+  install_formulae(data, options, skip_names: [SELF_FORMULA], quiet_installed: true)
+  install_casks(data, options, quiet_installed: true)
+  formula_targets = formula_update_target_names(data, options, installed_formulae_before)
+  cask_targets = cask_update_target_names(data, options, installed_casks_before)
+  upgrade_formulae(data, options, skip_names: [SELF_FORMULA], only_names: formula_targets)
+  upgrade_casks(data, options, only_names: cask_targets)
 end
 
 def command_list(data, options)
@@ -433,6 +480,8 @@ def print_install_state(data, options)
                 "stale (run arcana self-update)"
               elsif outdated_formulae.include?(name)
                 "stale (run arcana update)"
+              elsif reinstall_on_update?(item)
+                "refresh-on-update"
               else
                 "installed"
               end
