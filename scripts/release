@@ -443,7 +443,8 @@ def update_formula_file(formula: Formula, tag: str, sha256: str, *, dry_run: boo
             saw_sha = True
             continue
 
-        if stripped.startswith("version "):
+        # New upstream releases infer their version from the tag and reset revisions.
+        if stripped.startswith(("version ", "revision ")):
             continue
 
         updated.append(line)
