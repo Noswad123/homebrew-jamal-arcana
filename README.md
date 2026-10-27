@@ -156,10 +156,70 @@ Run the isolated Ruby standard-library tests (fake Homebrew only):
 ruby test/arcana_test.rb
 ```
 
+### MindWeaver Rust CLI packaging
+
+`mw` now builds the Rust CLI from workspace package `crates/mw` with Homebrew's
+locked Cargo arguments. The default source is the immutable upstream commit
+`4745d03ac750c45ae52f63b736620fdc617b0541`, verified by its archive SHA256, rather
+than mutable `main` or the old Go `v0.1.3` source. The source requires Rust 1.89+
+and bundles SQLite; the formula supplies Rust as a build dependency.
+
+The Homebrew package is **`0.1.3_1`**: `0.1.3` preserves the previous package
+baseline, while `revision 1` makes Homebrew recognize the Rust migration as an
+upgrade. This does **not** claim an upstream Rust `v0.1.3` release. The pinned
+Rust crate currently reports **`mw 0.1.0`**, independently of Homebrew's package
+version. Its help identifies it as the Rust port.
+
+`mw` intentionally does not use `reinstall_on_update`: rebuilding an immutable
+snapshot every time would not fetch newer code. Once these tap changes are
+published and pulled by `brew update`, ordinary `arcana update` selects the
+outdated package and runs `brew upgrade Noswad123/jamal-arcana/mw`. A source
+commit/checksum change at the same package baseline must also increment
+`revision`. A later upstream release should use its real tag/version and reset
+the packaging revision; the release helper now removes the old revision when
+rewriting a formula for a new tag. `--HEAD` is an explicit, moving-source option,
+not the default update policy.
+
+**This is a Rust migration preview, not complete Go CLI parity.** The old Go
+package provides Hive Sync (`mw sync`), including remote push/pull, diagnostics,
+conflicts, and token management. This pinned Rust source does not implement that
+command. Do not upgrade a workflow that depends on Hive Sync until an explicit
+migration/support decision has been made; package caveats warn about the removal.
+`mw seal`/`mw notes sync` only run the local notes pipeline and are not remote-sync
+replacements. No silent fallback to the old Go binary is provided. Review other
+existing automation against the Rust CLI help before opting into this preview.
+
+**API compatibility is separate from installation.** This commit supports
+`mw config json` and schema JSON discovery, but it does **not** implement
+`mw todos snapshot --json` or the task-safety-v1 mutation protocol expected by
+the newest editor/Waybar integrations. A function named `todos_snapshot_command`
+only prints terminal progress bars; it is not that JSON endpoint. The package
+test verifies the APIs actually present without claiming full integration
+compatibility. Those integrations must remain unavailable/fail closed until the
+corresponding upstream engine changes are available. Do not substitute a
+DB-initializing query or automatic sync as a workaround. Installing the CLI also
+does not copy or initialize your notes.
+
+Validate this checkout without installing tools or publishing releases:
+
+```bash
+python3 -B -m unittest discover -s tests -p 'test_*.py'
+ruby -c Formula/mw.rb
+ruby -x -c scripts/arcana
+```
+
+The regression suite checks the source pin, Rust build, outdated-only update
+selection, and revision reset for future releases using mocks and temporary
+files. Do not run `scripts/release` to apply this migration: its normal workflow
+creates/pushes upstream tags and commits/pushes tap changes. A newly cloned tap
+checkout is also separate from Homebrew's installed tap; editing it alone does
+not replace the installed `mw` binary or change what `arcana update` currently
+sees.
+
 ## MindWeaver native app dependency strategy
 
-The native MindWeaver macOS app is intentionally a SwiftUI shell around the Go
-`mw` engine. Homebrew should provide the required CLI dependency instead of the
+The native MindWeaver macOS app is a SwiftUI shell around the `mw` engine.
+Homebrew should provide the required CLI dependency instead of the
 app bundling its own copy:
 
 ```bash
@@ -186,6 +246,8 @@ Expected fallback order in the app:
 
 The native app cask declares `mw` as its required formula dependency and leaves
 `wisp`, `neovim`, `kitty`, and `aerospace` as documented optional enhancements.
+The CLI formula's migration to Rust is not proof of Swift app protocol parity;
+test the app's workflows separately on macOS before relying on the new engine.
 
 The cask expects a release ZIP named with this convention:
 

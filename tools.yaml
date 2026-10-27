@@ -18,7 +18,7 @@ formulae:
     description: Composable multiplexer kits for named working sessions.
   - name: mw
     command: mw
-    description: Local-first notes, todos, and optional Hive Mind sync CLI.
+    description: Local-first Rust notes and todos CLI (pinned migration snapshot).
   - name: waystone
     command: waystone
     reinstall_on_update: true
