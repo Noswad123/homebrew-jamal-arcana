@@ -19,6 +19,11 @@ formulae:
   - name: mw
     command: mw
     description: Local-first Rust notes and todos CLI (pinned migration snapshot).
+  - name: numen
+    command: numen
+    platforms: [macos]
+    reinstall_on_update: true
+    description: Event-driven desktop familiar for the Arcana ecosystem.
   - name: waystone
     command: waystone
     reinstall_on_update: true
@@ -31,6 +36,10 @@ formulae:
     command: wyrm
     reinstall_on_update: true
     description: Dragon-hoard terminal file manager for browsing and managing local files.
+  - name: yggdrasil
+    command: ygg
+    reinstall_on_update: true
+    description: Share private files across Git worktrees with local history.
 
 casks:
   - name: mind-weaver

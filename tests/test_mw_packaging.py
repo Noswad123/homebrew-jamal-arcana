@@ -95,6 +95,8 @@ class MwPackagingTests(unittest.TestCase):
             self.skipTest("Ruby is required for the Arcana regression harness")
         harness = r'''
 require "json"
+require "rbconfig" # Apple's system Ruby needs uname before isolating PATH.
+ENV["PATH"] = ""
 def system(*)
   raise "unexpected external command"
 end
@@ -134,8 +136,7 @@ puts "ARCANA_TEST_RESULT=" + JSON.generate({
 '''
         env = dict(os.environ, ARCANA_PLATFORM="linux",
                    ARCANA_TOOLS_YAML=str(ROOT / "tools.yaml"),
-                   ARCANA_TEST_SCRIPT=str(ROOT / "scripts" / "arcana"),
-                   PATH="")
+                   ARCANA_TEST_SCRIPT=str(ROOT / "scripts" / "arcana"))
         result = subprocess.run([ruby, "--disable=gems", "-e", harness],
                                 env=env, capture_output=True, text=True, check=True)
         marker = "ARCANA_TEST_RESULT="

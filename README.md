@@ -15,9 +15,10 @@ arcana install
 arcana update
 ```
 
-On Linux, install Homebrew/Linuxbrew first, then run the same commands. The
-native MindWeaver app cask and optional GUI casks are macOS-only and are skipped
-automatically; use `--no-casks` to make that explicit in dry runs or scripts.
+On Linux, install Homebrew/Linuxbrew first, then run the same commands. Numen,
+the native MindWeaver app cask, and optional GUI casks are macOS-only and are
+skipped automatically; use `--no-casks` to explicitly exclude casks in dry runs
+or scripts.
 
 ### Bootstrap a Linux machine
 
@@ -98,8 +99,10 @@ brew install coven
 brew install djinn
 brew install kitsune
 brew install mw
+brew install numen # macOS only
 brew install wisp
 brew install waystone
+brew install yggdrasil # provides the ygg command
 brew install --cask mind-weaver
 ```
 
@@ -111,8 +114,10 @@ brew install Noswad123/jamal-arcana/coven
 brew install Noswad123/jamal-arcana/djinn
 brew install Noswad123/jamal-arcana/kitsune
 brew install Noswad123/jamal-arcana/mw
+brew install Noswad123/jamal-arcana/numen # macOS only
 brew install Noswad123/jamal-arcana/wisp
 brew install Noswad123/jamal-arcana/waystone
+brew install Noswad123/jamal-arcana/yggdrasil # provides the ygg command
 brew install --cask Noswad123/jamal-arcana/mind-weaver
 ```
 
@@ -123,14 +128,49 @@ brew install --cask Noswad123/jamal-arcana/mind-weaver
 - `djinn` — local-first companion for OpenCode and other AI coding agents
 - `kitsune` — composable multiplexer kits for named working sessions
 - `mw` — local-first notes and todos CLI
+- `numen` — event-driven desktop familiar (macOS only; launched manually)
 - `wisp` — open a command in a floating kitty terminal window
 - `waystone` — save, fuzzy-pick, copy, and open frequently used paths
+- `yggdrasil` — share private files across Git worktrees with local history; command: `ygg`
 
 ## Casks
 
 - `mind-weaver` — native macOS app shell for MindWeaver
 
-Casks are macOS-only. Linuxbrew installs only the formulae from this manifest.
+Casks are macOS-only. Linuxbrew installs platform-supported formulae from this
+manifest; Numen is initially macOS-only while its Linux desktop support remains
+unvalidated.
+
+## Yggdrasil and Numen previews
+
+Both formulae currently track upstream `main` with the tap's `0.1.0-dev` package
+baseline and `reinstall_on_update: true`. There is no tagged release implied by
+that version. They build published source, not uncommitted sibling checkouts.
+At the time of adding this formula, published Numen commit `9937f9f` provides the
+standalone Hex rendering preview, not the local socket service, publisher, or
+Djinn integration. Those require subsequent upstream changes; adding this
+formula does not publish the local work.
+Neither upstream currently declares a project license; these formulae do not
+invent one. Resolve code/artwork redistribution permissions before publishing
+bottles or redistributing artifacts.
+
+Yggdrasil builds with Go and installs **`ygg`**, with Git as a runtime dependency.
+Installation does not initialize private stores or install Git hooks:
+
+```bash
+ygg help
+ygg hooks help
+```
+
+Numen builds with Rust and embeds its artwork in the executable. Installation
+does not launch a window, register a service, or enable autostart:
+
+```bash
+numen check-assets # headless validation of the embedded artwork
+numen run          # launch manually in a graphical macOS session
+```
+
+## Update behavior
 
 Some formulae currently track the `main` branch until their first tagged
 releases. `arcana update` reinstalls only those tools marked
