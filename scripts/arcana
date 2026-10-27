@@ -25,6 +25,40 @@ SELF_FORMULA = "arcana"
 
 Options = Struct.new(:dry_run, :include_optional, :include_casks, keyword_init: true)
 
+class UpdateResults
+  def initialize
+    @entries = []
+    @attempted = Set.new
+  end
+
+  def claim(kind, name)
+    !!@attempted.add?([kind, name])
+  end
+
+  def record(kind, package, operation, stage, state, previous_removed)
+    @entries << { kind: kind, package: package, operation: operation, stage: stage,
+                  state: state, previous_removed: previous_removed }
+  end
+
+  def summarize
+    counts = @entries.group_by { |entry| entry[:state] }
+    puts "Update summary: #{counts.fetch(:success, []).size} succeeded, " \
+         "#{counts.fetch(:failed, []).size} failed, #{counts.fetch(:planned, []).size} planned steps."
+    @entries.select { |entry| entry[:state] == :failed }.each do |entry|
+      detail = entry[:previous_removed] ? "; previous installation removed" : ""
+      puts "  FAILED #{entry[:kind]} #{entry[:package]}: #{entry[:operation]}/#{entry[:stage]}#{detail}"
+    end
+    counts.fetch(:failed, []).empty?
+  end
+end
+
+def package_run(*args, kind:, package:, operation:, stage:, options:, results: nil, previous_removed: false)
+  success = run(*args, dry_run: options.dry_run, allow_failure: !results.nil?)
+  state = options.dry_run ? :planned : (success ? :success : :failed)
+  results&.record(kind, package, operation, stage, state, previous_removed)
+  success
+end
+
 def usage
   <<~USAGE
     Usage: arcana <command> [options]
@@ -171,12 +205,18 @@ def reinstall_on_update?(item)
   item["reinstall_on_update"] == true
 end
 
-def refresh_formula(tap, item, options)
+def refresh_formula(tap, item, options, results: nil)
   name = installed_name(item)
   package = package_name(tap, item)
 
-  run("brew", "uninstall", "--ignore-dependencies", name, dry_run: options.dry_run)
-  run("brew", "install", package, dry_run: options.dry_run)
+  removed = package_run("brew", "uninstall", "--ignore-dependencies", name,
+                        kind: :formula, package: package, operation: :refresh, stage: :uninstall,
+                        options: options, results: results)
+  return unless removed
+
+  package_run("brew", "install", package, kind: :formula, package: package,
+              operation: :refresh, stage: :install, options: options, results: results,
+              previous_removed: !options.dry_run)
 end
 
 def installed_formula_item_names(data, options)
@@ -295,7 +335,7 @@ def arcana_self_update_needed?(data)
   !formula_installed?(installed_name(item)) || arcana_self_stale?(data)
 end
 
-def install_formulae(data, options, skip_names: [], quiet_installed: false)
+def install_formulae(data, options, skip_names: [], quiet_installed: false, results: nil)
   tap = tap_name(data)
 
   formula_items(data, options).each do |item|
@@ -307,11 +347,15 @@ def install_formulae(data, options, skip_names: [], quiet_installed: false)
       puts "formula #{name} already installed" unless quiet_installed
       next
     end
-    run("brew", "install", package_name(tap, item), dry_run: options.dry_run)
+    next if results && !results.claim(:formula, name)
+
+    package = package_name(tap, item)
+    package_run("brew", "install", package, kind: :formula, package: package,
+                operation: :install, stage: :install, options: options, results: results)
   end
 end
 
-def install_casks(data, options, quiet_installed: false)
+def install_casks(data, options, quiet_installed: false, results: nil)
   unless casks_enabled?(options)
     print_casks_skipped(options)
     return
@@ -327,11 +371,15 @@ def install_casks(data, options, quiet_installed: false)
       puts "cask #{name} already installed" unless quiet_installed
       next
     end
-    run("brew", "install", "--cask", package_name(tap, item), dry_run: options.dry_run)
+    next if results && !results.claim(:cask, name)
+
+    package = package_name(tap, item)
+    package_run("brew", "install", "--cask", package, kind: :cask, package: package,
+                operation: :install, stage: :install, options: options, results: results)
   end
 end
 
-def upgrade_formulae(data, options, skip_names: [], only_names: nil)
+def upgrade_formulae(data, options, skip_names: [], only_names: nil, results: nil)
   tap = tap_name(data)
 
   formula_items(data, options).each do |item|
@@ -340,17 +388,19 @@ def upgrade_formulae(data, options, skip_names: [], only_names: nil)
 
     name = installed_name(item)
     next unless options.dry_run || formula_installed?(name)
+    next if results && !results.claim(:formula, name)
 
     if reinstall_on_update?(item)
-      refresh_formula(tap, item, options)
+      refresh_formula(tap, item, options, results: results)
     else
       package = package_name(tap, item)
-      run("brew", "upgrade", package, dry_run: options.dry_run, allow_failure: true)
+      package_run("brew", "upgrade", package, kind: :formula, package: package,
+                  operation: :upgrade, stage: :upgrade, options: options, results: results)
     end
   end
 end
 
-def upgrade_casks(data, options, only_names: nil)
+def upgrade_casks(data, options, only_names: nil, results: nil)
   return unless casks_enabled?(options)
 
   tap = tap_name(data)
@@ -361,8 +411,11 @@ def upgrade_casks(data, options, only_names: nil)
 
     name = installed_name(item)
     next unless options.dry_run || cask_installed?(name)
+    next if results && !results.claim(:cask, name)
 
-    run("brew", "upgrade", "--cask", package_name(tap, item), dry_run: options.dry_run, allow_failure: true)
+    package = package_name(tap, item)
+    package_run("brew", "upgrade", "--cask", package, kind: :cask, package: package,
+                operation: :upgrade, stage: :upgrade, options: options, results: results)
   end
 end
 
@@ -420,12 +473,14 @@ def command_update(data, options)
   self_stale = arcana_self_update_needed?(data)
   command_self_update(data, options, brew_updated: true, tap_ensured: true) if self_stale
   restart_update_with_refreshed_arcana(options) if self_stale
-  install_formulae(data, options, skip_names: [SELF_FORMULA], quiet_installed: true)
-  install_casks(data, options, quiet_installed: true)
+  results = UpdateResults.new
+  install_formulae(data, options, skip_names: [SELF_FORMULA], quiet_installed: true, results: results)
+  install_casks(data, options, quiet_installed: true, results: results)
   formula_targets = formula_update_target_names(data, options, installed_formulae_before)
   cask_targets = cask_update_target_names(data, options, installed_casks_before)
-  upgrade_formulae(data, options, skip_names: [SELF_FORMULA], only_names: formula_targets)
-  upgrade_casks(data, options, only_names: cask_targets)
+  upgrade_formulae(data, options, skip_names: [SELF_FORMULA], only_names: formula_targets, results: results)
+  upgrade_casks(data, options, only_names: cask_targets, results: results)
+  exit(results.summarize ? 0 : 1)
 end
 
 def command_list(data, options)

@@ -1,0 +1,42 @@
+# The test prepends an absolute Ruby shebang; PATH never includes real Homebrew.
+require "json"
+
+path = ENV.fetch("FAKE_BREW_STATE")
+state = JSON.parse(File.read(path))
+File.open(ENV.fetch("FAKE_BREW_LOG"), "a") { |log| log.puts(JSON.generate(ARGV)) }
+failed = state.fetch("failures", []).include?(ARGV)
+kind = ARGV.include?("--cask") ? "cask" : "formula"
+name = File.basename(ARGV.last)
+installed = state.fetch(kind)
+status = 0
+
+if failed
+  status = 1
+else
+  case ARGV.first
+  when "--version"
+    puts "Homebrew fixture"
+  when "--repo"
+    puts state.fetch("repo")
+  when "list"
+    sequence = state.fetch("list_sequences", {})["#{kind}:#{name}"]
+    present = sequence && !sequence.empty? ? sequence.shift : installed.include?(name)
+    status = present ? 0 : 1
+  when "outdated"
+    puts state.fetch("outdated_#{kind}", []).join("\n")
+  when "install", "reinstall", "upgrade"
+    installed << name unless installed.include?(name)
+    if name == "arcana" && state["refresh_script"]
+      File.write(state.fetch("refresh_script"), File.read(File.join(state.fetch("repo"), "scripts", "arcana")))
+    end
+  when "uninstall"
+    installed.delete(name)
+  when "update", "tap"
+    # Prerequisites have no fixture state changes.
+  else
+    abort "unexpected fake brew command"
+  end
+end
+
+File.write(path, JSON.generate(state))
+exit status

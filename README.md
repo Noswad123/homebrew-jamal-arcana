@@ -137,6 +137,25 @@ releases. `arcana update` reinstalls only those tools marked
 `reinstall_on_update: true`, upgrades Homebrew-outdated formulae/casks, and
 installs missing manifest entries. Other installed tools are left alone.
 
+During the package phase, `arcana update` continues with independent tools even
+if one fails, then prints a summary listing every failed package and stage. It
+exits with status 1 if any package step failed, or 0 otherwise. Homebrew setup
+and Arcana's own refresh/restart remain fail-fast, as do `arcana install` and
+`arcana self-update`. Dry runs report planned steps, not completed successes.
+
+Forced refreshes retain the existing `uninstall --ignore-dependencies` followed
+by `install` policy. This is not atomic: if installation fails after removal,
+the previous installation is gone, and the summary explicitly reports that.
+If removal fails, that package's install is skipped. Failed installs are not
+explicitly retried by Arcana later in the same update. Homebrew still resolves
+dependencies when Arcana attempts another package.
+
+Run the isolated Ruby standard-library tests (fake Homebrew only):
+
+```bash
+ruby test/arcana_test.rb
+```
+
 ## MindWeaver native app dependency strategy
 
 The native MindWeaver macOS app is intentionally a SwiftUI shell around the Go
