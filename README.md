@@ -233,8 +233,9 @@ running-service compatibility.
 
 ### Stable launchers and payload locations
 
-On successful selection, Arcana provisions permanent command launchers under
-`~/.local/bin`. They read explicit selection state and execute the selected target
+On successful selection, Arcana provisions permanent command launchers in the
+configured managed directory (default `~/.local/bin` for compatibility). They read
+explicit selection state and execute the selected target
 directly, preserving arguments, working directory, environment, stdio, exit
 status, and normal `exec` signal behavior. They do not search PATH, run `brew`,
 or fall back when a target disappears. Runtime code is copied into user-owned
@@ -245,7 +246,7 @@ stable `opt` path when available rather than a version-pinned Cellar path.
 Payload layout:
 
 ```text
-public entrypoint: ~/.local/bin/<command>
+public entrypoint: <managed-bin>/<command>
 dev payload:       ~/.local/libexec/arcana-dev/<app>/bin/<command>
 brew payload:      <brew-prefix>/opt/<installed-formula>/bin/<command>
 selection state:   ${XDG_STATE_HOME:-~/.local/state}/arcana/sources.json
@@ -269,8 +270,29 @@ the resolved prefix is saved in the selection. Brew targets use formula `opt`
 paths and remain valid across Cellar version changes. `--dev-root` is the parent
 of per-app directories, not a checkout or an individual app's `bin` directory.
 Root overrides apply to the current selection, not to later `use` commands.
-`ARCANA_BIN_DIR` can override the public launcher directory with an absolute path;
-use it consistently, since changing it does not remove old launchers.
+Persist a separate managed directory when legacy executables must remain at
+their existing paths for active sessions. Create
+`${XDG_CONFIG_HOME:-~/.config}/arcana/config.json` with an absolute, normalized
+path (no shell variables or `~` expansion):
+
+```json
+{
+  "version": 1,
+  "source_bin_dir": "/Users/you/.local/share/arcana/bin"
+}
+```
+
+Put that directory before `~/.local/bin`, Cargo, Go, and Homebrew in PATH and point
+desktop bindings at it. Selection can then adopt every app without renaming
+legacy binaries still mapped by running processes. Existing sessions keep their
+original binary/socket affinity; cleanup can wait until they exit naturally.
+
+`ARCANA_BIN_DIR` overrides this preference for a single invocation; without either
+setting, the default remains `~/.local/bin`. Present configuration is validated
+even when overridden. Missing configuration is not created by diagnostics or
+selection. Changing the directory does not delete old launchers. Static launchers
+read only selection state, not this preference, so compatible old entrypoints
+can continue to work while management targets the new directory.
 
 ### Existing installations and migration boundaries
 

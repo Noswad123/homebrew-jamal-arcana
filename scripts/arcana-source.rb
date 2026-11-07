@@ -33,6 +33,30 @@ module ArcanaSource
     path
   end
 
+  def self.preferred_bin(home)
+    config_home = absolute(ENV.fetch("XDG_CONFIG_HOME", File.join(home, ".config")), "XDG_CONFIG_HOME")
+    path = File.join(config_home, "arcana", "config.json")
+    preferred = File.join(home, ".local/bin")
+    if present?(path)
+      begin
+        raise Error, "must be a regular file" unless File.file?(path) && !File.symlink?(path)
+        config = JSON.parse(File.read(path))
+        ArcanaDispatch.keys!(config, %w[version source_bin_dir], "configuration keys")
+        unless config["version"].is_a?(Integer) && config["version"] == 1
+          raise Error, "unsupported configuration version"
+        end
+        preferred = config["source_bin_dir"]
+        unless ArcanaDispatch.absolute?(preferred) && !preferred.include?("\r")
+          raise Error, "source_bin_dir must be a normalized absolute single-line path"
+        end
+      rescue Error, JSON::ParserError, SystemCallError, IOError => e
+        raise Error, "invalid source config #{path}: #{e.message}"
+      end
+    end
+    # The environment wins, but a present configuration is always validated.
+    absolute(ENV.fetch("ARCANA_BIN_DIR", preferred), "ARCANA_BIN_DIR")
+  end
+
   def self.registry(data)
     unless data.is_a?(Hash) && data.fetch("formulae", []).is_a?(Array) &&
            data.fetch("optional", {}).is_a?(Hash) &&
@@ -236,7 +260,7 @@ module ArcanaSource
     home = File.expand_path("~")
     state_home = absolute(ENV.fetch("XDG_STATE_HOME", File.join(home, ".local/state")), "XDG_STATE_HOME")
     state_path = File.join(state_home, "arcana", "sources.json")
-    bin = absolute(ENV.fetch("ARCANA_BIN_DIR", File.join(home, ".local/bin")), "ARCANA_BIN_DIR")
+    bin = preferred_bin(home)
     apps, names = registry(manifest)
     if command != "use"
       raise UsageError, "unexpected arguments for #{command}" unless argv.empty?

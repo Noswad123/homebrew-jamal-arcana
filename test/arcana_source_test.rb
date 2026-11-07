@@ -31,7 +31,7 @@ class ArcanaSourceTest < Minitest::Test
     # Expose only that utility, not a system PATH containing real applications.
     File.symlink("/usr/bin/uname", File.join(@path, "uname")) if File.executable?("/usr/bin/uname")
     @env = {
-      "HOME" => @home, "XDG_STATE_HOME" => @state_home,
+      "HOME" => @home, "XDG_STATE_HOME" => @state_home, "XDG_CONFIG_HOME" => nil,
       "ARCANA_BIN_DIR" => @bin, "ARCANA_TOOLS_YAML" => @manifest,
       "ARCANA_PLATFORM" => "linux", "PATH" => @path,
       "BREW_PREFIX" => @brew, "BREW_LOG" => @brew_log,
@@ -306,6 +306,111 @@ class ArcanaSourceTest < Minitest::Test
     assert_no_brew
   end
 
+  def write_config(content, config_home = File.join(@home, ".config"))
+    path = File.join(config_home, "arcana", "config.json")
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, content)
+    path
+  end
+
+  def test_absent_config_preserves_default_launcher_directory
+    @env.delete("ARCANA_BIN_DIR")
+    success(select("dev", "alpha"))
+    assert_equal File.join(@home, ".local/bin/alpha"), state["apps"]["alpha"]["launchers"]["alpha"]
+    refute File.exist?(File.join(@home, ".config"))
+    assert_no_brew
+  end
+
+  def test_environment_launcher_directory_overrides_valid_preference
+    preferred = File.join(@home, ".local/share/arcana/bin")
+    write_config(JSON.generate("version" => 1, "source_bin_dir" => preferred))
+    success(select("dev", "alpha"))
+    assert_equal File.join(@bin, "alpha"), state["apps"]["alpha"]["launchers"]["alpha"]
+    refute File.exist?(preferred)
+    assert_no_brew
+  end
+
+  [false, true].each do |custom_xdg|
+    define_method("test_preferred_launchers_preserve_legacy_binaries_#{custom_xdg ? 'custom_xdg' : 'default_xdg'}") do
+      @env.delete("ARCANA_BIN_DIR")
+      @env["XDG_CONFIG_HOME"] = File.join(@home, "custom config") if custom_xdg
+      @bin = File.join(@home, ".local/share/arcana/bin")
+      config_path = write_config(JSON.generate("version" => 1, "source_bin_dir" => @bin),
+                                 @env["XDG_CONFIG_HOME"] || File.join(@home, ".config"))
+      raw = File.join(@home, ".local/bin/alpha")
+      executable(raw, "legacy binary\x00content")
+      original = [File.binread(raw), File.stat(raw).ino, File.stat(raw).mtime, File.stat(raw).mode]
+      before = snapshot
+      %w[status doctor].each { |command| success(cli(command)) }
+      success(select("dev", "--all", "--dry-run"))
+      assert_equal before, snapshot
+      refute File.exist?(@bin)
+      success(select("dev", "--all"))
+      assert_equal %w[alpha beta], state["apps"].keys.sort
+      state["apps"].each_value do |app|
+        app["launchers"].each do |command, path|
+          assert_equal File.join(@bin, command), path
+          assert File.executable?(path)
+        end
+      end
+      assert_equal original, [File.binread(raw), File.stat(raw).ino, File.stat(raw).mtime, File.stat(raw).mode]
+      # Diagnostics use recorded paths, not the current preference.
+      write_config(JSON.generate("version" => 1, "source_bin_dir" => File.join(@home, "unused/bin")),
+                   File.dirname(File.dirname(config_path)))
+      before = snapshot
+      %w[status doctor].each { |command| success(cli(command)) }
+      assert_equal before, snapshot
+      # Static launchers do not read config or launcher-directory overrides.
+      File.write(config_path, "{broken")
+      assert_equal "dev/alpha/alpha", JSON.parse(success(launch("alpha", env: {
+        "ARCANA_BIN_DIR" => "relative", "XDG_CONFIG_HOME" => "relative"
+      })))["payload"]
+      assert_no_brew
+    end
+  end
+
+  {
+    "json" => "{broken", "array" => "[]", "null" => "null",
+    "unknown_key" => JSON.generate("version" => 1, "source_bin_dir" => "/managed/bin", "extra" => true),
+    "missing_key" => JSON.generate("version" => 1),
+    "version" => JSON.generate("version" => 2, "source_bin_dir" => "/managed/bin"),
+    "float_version" => JSON.generate("version" => 1.0, "source_bin_dir" => "/managed/bin"),
+    "string_version" => JSON.generate("version" => "1", "source_bin_dir" => "/managed/bin")
+  }.merge({ "empty" => "", "relative" => "relative", "unnormalized" => "/managed/../bin",
+            "newline" => "/managed\nbin", "carriage_return" => "/managed\rbin",
+            "nul" => "/managed\0bin", "nonstring" => 17 }.transform_values do |value|
+    JSON.generate("version" => 1, "source_bin_dir" => value)
+  end).each do |kind, content|
+    define_method("test_invalid_config_#{kind}_is_read_only_even_with_environment_override") do
+      path = write_config(content)
+      before = snapshot
+      [%w[use brew --all], ["status"], ["doctor"]].each do |args|
+        output = failure(cli(*args), 1, /invalid source config/)
+        assert_includes output, path
+        refute_match(/from .*:\d+|Traceback/, output)
+        assert_equal before, snapshot
+      end
+      assert_no_brew
+    end
+  end
+
+  %w[symlink broken_symlink directory].each do |kind|
+    define_method("test_config_#{kind}_is_rejected_without_writes") do
+      path = write_config("{}")
+      File.unlink(path)
+      case kind
+      when "directory" then FileUtils.mkdir_p(path)
+      else File.symlink(kind == "symlink" ? @manifest : File.join(@tmp, "absent"), path)
+      end
+      before = snapshot
+      [%w[use brew --all], ["status"], ["doctor"]].each do |args|
+        failure(cli(*args), 1, /config.*regular file/)
+        assert_equal before, snapshot
+      end
+      assert_no_brew
+    end
+  end
+
   def test_arguments_cwd_environment_stderr_and_exit_survive_minimal_misleading_path
     success(select("dev", "alpha"))
     args = ["two words", "", "'quoted'", "$(touch nope)", "--flag=value", "line\nbreak"]
@@ -402,7 +507,7 @@ class ArcanaSourceTest < Minitest::Test
     end
   end
 
-  %w[XDG_STATE_HOME ARCANA_BIN_DIR].each do |key|
+  %w[XDG_STATE_HOME XDG_CONFIG_HOME ARCANA_BIN_DIR].each do |key|
     define_method("test_rejects_relative_#{key.downcase}") do
       before = snapshot
       failure(cli("use", "dev", "alpha", env: { key => "relative" }), 2, /absolute/)
@@ -835,8 +940,9 @@ class ArcanaSourceTest < Minitest::Test
     FileUtils.cp(@manifest, File.join(share, "tools.yaml"))
     public_command = File.join(@path, "arcana")
     File.symlink(File.join(installed_bin, "arcana"), public_command)
+    write_config(JSON.generate("version" => 1, "source_bin_dir" => @bin))
     success(cli("use", "dev", "alpha", "--dev-root", @dev, script: public_command,
-                env: { "ARCANA_TOOLS_YAML" => nil }))
+                env: { "ARCANA_TOOLS_YAML" => nil, "ARCANA_BIN_DIR" => nil }))
     success(launch("alpha"))
     assert_no_brew
   end
