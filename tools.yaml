@@ -6,38 +6,66 @@ formulae:
     description: Install and update the Jamal Arcana Homebrew ecosystem.
   - name: coven
     command: coven
+    sources:
+      commands: [coven]
     reinstall_on_update: true
     description: Magic-themed multi-agent workspaces backed by local files and kitsune.
   - name: djinn
     command: djinn
+    sources:
+      commands: [djinn, djinn-ui]
+      environment:
+        DJINN_UI_BIN: djinn-ui
     reinstall_on_update: true
     description: Local-first companion for OpenCode and other AI coding agents.
   - name: kitsune
     command: kitsune
+    sources:
+      commands: [kitsune]
     reinstall_on_update: true
     description: Composable multiplexer kits for named working sessions.
   - name: mw
     command: mw
+    sources:
+      commands: [mw]
     description: Local-first Rust notes and todos CLI (pinned migration snapshot).
   - name: numen
     command: numen
+    sources:
+      commands: [numen]
     platforms: [macos]
     reinstall_on_update: true
     description: Event-driven desktop familiar for the Arcana ecosystem.
   - name: waystone
     command: waystone
+    sources:
+      commands: [waystone]
     reinstall_on_update: true
     description: Save, fuzzy-pick, copy, and open frequently used paths.
   - name: wisp
     command: wisp
+    sources:
+      commands: [wisp]
+      companions:
+        - command: wisp-hint-macos
+          platforms: [macos]
+          environment: WISP_HINT_HELPER
+        - command: wisp-hint-linux
+          platforms: [linux]
+          environment: WISP_HINT_HELPER
     reinstall_on_update: true
     description: Command palette and floating utility surface launcher.
   - name: wyrm
     command: wyrm
+    sources:
+      commands: [wyrm]
     reinstall_on_update: true
     description: Dragon-hoard terminal file manager for browsing and managing local files.
   - name: yggdrasil
     command: ygg
+    sources:
+      commands: [ygg]
+      aliases: [ygg]
     reinstall_on_update: true
     description: Share private files across Git worktrees with local history.
 

@@ -1,10 +1,12 @@
+require "shellwords"
+
 class Djinn < Formula
   desc "Local-first companion for OpenCode and other AI coding agents"
   homepage "https://github.com/Noswad123/djinn"
   url "https://github.com/Noswad123/djinn.git", branch: "main"
   version "0.1.0-dev"
   license "MIT"
-  revision 1
+  revision 2
 
   depends_on "bun" => :build
   depends_on "rust" => :build
@@ -16,7 +18,17 @@ class Djinn < Formula
     system "make", "install-ui", "INSTALL_DIR=#{bin}"
 
     libexec.install bin/"djinn" => "djinn"
-    (bin/"djinn").write_env_script libexec/"djinn", DJINN_UI_BIN: opt_bin/"djinn-ui"
+    # Preserve explicit overrides (including empty values). Arcana can bind a
+    # selected bundle, while standalone brew users still get a stable default.
+    (bin/"djinn").write <<~SH
+      #!/bin/sh
+      if [ "${DJINN_UI_BIN+x}" != x ]; then
+        DJINN_UI_BIN=#{Shellwords.escape((opt_bin/"djinn-ui").to_s)}
+        export DJINN_UI_BIN
+      fi
+      exec #{Shellwords.escape((libexec/"djinn").to_s)} "$@"
+    SH
+    (bin/"djinn").chmod 0755
   end
 
   test do

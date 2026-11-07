@@ -12,9 +12,11 @@ class Arcana < Formula
   def install
     bin.install "scripts/arcana"
     pkgshare.install "tools.yaml", "Formula", "Casks"
+    pkgshare.install "scripts/arcana-source.rb", "scripts/arcana-dispatch.rb"
   end
 
   test do
     assert_match "Tap: Noswad123/jamal-arcana", shell_output("#{bin}/arcana list")
+    assert_match "Usage: arcana source", shell_output("#{bin}/arcana source --help")
   end
 end

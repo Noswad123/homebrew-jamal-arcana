@@ -4,8 +4,8 @@ class Numen < Formula
   url "https://github.com/Noswad123/numen.git", branch: "main"
   version "0.1.0-dev"
 
-  depends_on :macos
   depends_on "rust" => :build
+  depends_on :macos
 
   def install
     system "cargo", "install", *std_cargo_args
@@ -13,10 +13,15 @@ class Numen < Formula
 
   def caveats
     <<~EOS
-      Launch the familiar manually with:
+      Open one unattached familiar with:
+        numen
+
+      Bare numen reuses the graphical runtime service or bootstraps it detached.
+      For the foreground alternative, use:
         numen run
 
-      A graphical desktop is required. No service or autostart is installed.
+      A graphical desktop is required. Installation does not launch Numen or
+      register OS services/autostart; the runtime service is separate.
       Validate the embedded artwork without opening a window with:
         numen check-assets
     EOS

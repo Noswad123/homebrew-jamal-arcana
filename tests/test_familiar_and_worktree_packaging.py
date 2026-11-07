@@ -48,6 +48,26 @@ class FamiliarAndWorktreePackagingTests(unittest.TestCase):
         self.assertNotIn('SDKROOT', text)
         self.assertNotIn('service do', text)
 
+    def test_numen_launch_guidance_distinguishes_runtime_from_installation(self):
+        formula = (ROOT / "Formula" / "numen.rb").read_text()
+        readme = (ROOT / "README.md").read_text()
+        self.assertIn('version "0.1.0-dev"', formula)
+        self.assertIn('branch: "main"', formula)
+        self.assertIn("Open one unattached familiar with:\n        numen\n", formula)
+        self.assertIn("reuses the graphical runtime service", formula)
+        self.assertIn("bootstraps it detached", formula)
+        self.assertIn("foreground alternative", formula)
+        self.assertIn("Installation does not launch Numen", formula)
+        self.assertIn("register OS services/autostart", formula)
+        self.assertIn("numen check-assets # headless", readme)
+        self.assertIn("numen              # open one unattached familiar", readme)
+        self.assertIn("numen run          # foreground alternative", readme)
+        self.assertNotIn("9937f9f", readme)
+        self.assertNotIn("Those require subsequent upstream changes", readme)
+        self.assertIn("reinstall_on_update: true", readme)
+        self.assertIn("redistribution permissions", readme)
+        self.assertIn("does not publish upstream changes", readme)
+
     def test_release_helper_can_read_and_rewrite_both_formulae(self):
         for name in NAMES:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:

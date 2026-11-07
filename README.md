@@ -129,7 +129,7 @@ brew install --cask Noswad123/jamal-arcana/mind-weaver
 - `kitsune` — composable multiplexer kits for named working sessions
 - `mw` — local-first notes and todos CLI
 - `numen` — event-driven desktop familiar (macOS only; launched manually)
-- `wisp` — open a command in a floating kitty terminal window
+- `wisp` — native passive Palette and floating terminal utility surfaces
 - `waystone` — save, fuzzy-pick, copy, and open frequently used paths
 - `yggdrasil` — share private files across Git worktrees with local history; command: `ygg`
 
@@ -146,10 +146,8 @@ unvalidated.
 Both formulae currently track upstream `main` with the tap's `0.1.0-dev` package
 baseline and `reinstall_on_update: true`. There is no tagged release implied by
 that version. They build published source, not uncommitted sibling checkouts.
-At the time of adding this formula, published Numen commit `9937f9f` provides the
-standalone Hex rendering preview, not the local socket service, publisher, or
-Djinn integration. Those require subsequent upstream changes; adding this
-formula does not publish the local work.
+The installed feature set depends on the source published to upstream `main`;
+editing this tap or a sibling checkout does not publish upstream changes.
 Neither upstream currently declares a project license; these formulae do not
 invent one. Resolve code/artwork redistribution permissions before publishing
 bottles or redistributing artifacts.
@@ -163,11 +161,173 @@ ygg hooks help
 ```
 
 Numen builds with Rust and embeds its artwork in the executable. Installation
-does not launch a window, register a service, or enable autostart:
+does not launch Numen, register an OS service, or enable autostart. This is
+distinct from the graphical runtime service used after an explicit launch:
 
 ```bash
 numen check-assets # headless validation of the embedded artwork
-numen run          # launch manually in a graphical macOS session
+numen              # open one unattached familiar; reuse or bootstrap detached service
+numen run          # foreground alternative in a graphical macOS session
+```
+
+## Wisp native Palette
+
+Wisp packages `wisp-hint-macos` on macOS, built with `swiftc` and the Cocoa SDK
+from Apple Command Line Tools; full Xcode is not required. Linux installs the
+executable `wisp-hint-linux` script unchanged, using system `/usr/bin/python3`.
+The Linux native Wayland helper additionally needs distro-provided PyGObject,
+Pycairo, GTK 3 and gtk-layer-shell, not packages for Homebrew Python.
+
+`wisp palette [show|close|text]` controls the native passive Palette. The window
+manager/compositor owns Option+Space (Alt+Space) bindings and prefix mode;
+showing Palette alone does not capture keys or enter mode. `wisp menu` is the
+explicit optional Kitty/fzf terminal interface. Both share the action catalog
+at `~/.config/wisp/actions.toml`; native Palette does not need Kitty or fzf.
+
+Installation does not modify the action catalog or window manager configuration,
+generate/load bindings, register autostart, or launch the native helper.
+
+## Select dev or Homebrew executables
+
+Arcana can select the executable source independently of installation and updates:
+
+```bash
+arcana source use dev numen
+arcana source use brew numen wisp coven
+arcana source use brew --all --dry-run
+arcana source use brew --all
+arcana source use dev --all
+arcana source status
+arcana source doctor
+```
+
+These commands require the source-selection version of Arcana. While developing
+this checkout, use `./scripts/arcana source ...`; editing the checkout does not
+update an already-installed Arcana or publish a new Homebrew package.
+
+### Selection contract
+
+- Supply one or more app IDs, **or** `--all`, never both. Omitting both is an
+  error. `ygg` is also accepted as an alias for app ID `yggdrasil`.
+- `--all` expands to every platform-supported formula with a `sources` bundle
+  in `tools.yaml`, not just installed apps. Initially these are Coven, Djinn,
+  Kitsune, mw, Numen (macOS), Waystone, Wisp, Wyrm, and Yggdrasil. Arcana itself,
+  native `.app` casks, and optional third-party dependencies are not switched.
+- All requested commands, required helpers, and launcher conflicts are checked
+  before publication. A missing payload fails the **whole selection**; nothing
+  is silently skipped or switched to another source.
+- The complete selection is committed through one locked, atomic state-file
+  replacement, preserving apps not named in the command. `--all` records the
+  current set; it does not establish a default for future registry additions.
+- `--dry-run` performs the same preflight without writing state, locks, runtimes,
+  or launchers. It can still query `brew --prefix` for a brew selection.
+- Selection never installs, builds, updates, launches, or restarts an app. It
+  affects **new invocations only**. Existing services and workspaces keep their
+  current builds and endpoints until explicitly restarted or handed off.
+
+`status` and `doctor` are read-only and never invoke Homebrew or application
+executables. They show selections, targets, required helpers, and launcher/runtime
+health; they exit nonzero for unhealthy selections. Unselected apps are
+informational. These checks establish file-level readiness, not protocol or
+running-service compatibility.
+
+### Stable launchers and payload locations
+
+On successful selection, Arcana provisions permanent command launchers under
+`~/.local/bin`. They read explicit selection state and execute the selected target
+directly, preserving arguments, working directory, environment, stdio, exit
+status, and normal `exec` signal behavior. They do not search PATH, run `brew`,
+or fall back when a target disappears. Runtime code is copied into user-owned
+state, so removing the source checkout or upgrading Arcana does not remove it.
+Arcana's launchers use an absolute Ruby interpreter; Homebrew Ruby uses its
+stable `opt` path when available rather than a version-pinned Cellar path.
+
+Payload layout:
+
+```text
+public entrypoint: ~/.local/bin/<command>
+dev payload:       ~/.local/libexec/arcana-dev/<app>/bin/<command>
+brew payload:      <brew-prefix>/opt/<installed-formula>/bin/<command>
+selection state:   ${XDG_STATE_HOME:-~/.local/state}/arcana/sources.json
+```
+
+The dev app directory uses the app ID, e.g. `yggdrasil/bin/ygg`. Djinn's `djinn`
+and `djinn-ui` commands switch as one bundle. Wisp's platform-specific native
+helper is validated with Wisp. `DJINN_UI_BIN` and `WISP_HINT_HELPER` bind companion
+launches to the selected payload unless the caller explicitly supplied those
+variables (an explicitly empty value also counts as an override).
+
+Override roots when selecting an already-installed payload:
+
+```bash
+arcana source use dev numen wisp --dev-root /absolute/path/to/dev-payloads
+arcana source use brew --all --brew-prefix /opt/homebrew
+```
+
+Without `--brew-prefix`, only the management command queries `brew --prefix`;
+the resolved prefix is saved in the selection. Brew targets use formula `opt`
+paths and remain valid across Cellar version changes. `--dev-root` is the parent
+of per-app directories, not a checkout or an individual app's `bin` directory.
+Root overrides apply to the current selection, not to later `use` commands.
+`ARCANA_BIN_DIR` can override the public launcher directory with an absolute path;
+use it consistently, since changing it does not remove old launchers.
+
+### Existing installations and migration boundaries
+
+**Existing files and symlinks are never overwritten**, including broken symlinks.
+Only exact Arcana-owned launchers can be reused. There is deliberately no
+`--force`: preview the operation, preserve existing files, and resolve conflicts
+explicitly before retrying. Invalid or unsupported state is also refused rather
+than replaced.
+
+Before adopting a dev app, redirect its installer to the separate payload
+directory and preserve all required companion files. For example, from the
+appropriate source checkout:
+
+```bash
+# Numen: cargo install places the executable in <root>/bin.
+cargo install --path . --locked --root "$HOME/.local/libexec/arcana-dev/numen"
+
+# Wisp: install its executable and matching platform helper together.
+make install INSTALL_DIR="$HOME/.local/libexec/arcana-dev/wisp/bin"
+
+# Djinn: install both the CLI and UI.
+make install INSTALL_DIR="$HOME/.local/libexec/arcana-dev/djinn/bin"
+```
+
+Existing upstream installers may still default to `~/.local/bin`. Do not run
+those defaults after adopting Arcana launchers: they could replace the launcher.
+Installer-default migrations and automated adoption are not part of this first
+increment. Resource-bearing apps such as Coven also need their full resource
+layout; merely symlinking its script into a payload `bin` is not sufficient.
+
+Shell PATH must put the managed launcher directory ahead of Cargo/Homebrew and
+other payload directories. GUI shortcuts should invoke the absolute public
+launcher path. Directly invoking a checkout, `opt`, or Cellar executable bypasses
+selection intentionally.
+
+Existing generated configs are **not rewritten**. In particular, Numen's Wisp
+action can still contain the executable captured when it was generated, and
+Coven callbacks can contain implementation-specific paths. Migrate durable
+actions to the public launcher after checking their arguments and socket intent.
+Producer-side fixes are a separate follow-up; internal same-build spawning and
+session-bound binary/socket references must retain their affinity.
+
+Selection publication is atomic, but initial launcher provisioning spans multiple
+directories and is not a filesystem-wide transaction. Ordinary publication errors
+preserve the prior selection and remove newly created owned files; directories
+and the lock may remain. A process crash can leave unselected launchers or copied
+runtimes; inspect with `source doctor` and retry after resolving any conflict.
+
+To stop using selection without deleting anything, invoke the desired payload
+directly. Restoring the previous launcher files is a manual migration; no removal
+or automatic daemon management is performed.
+
+Run the isolated source-selection regressions without installing or launching
+real tools:
+
+```bash
+ruby test/arcana_source_test.rb
 ```
 
 ## Update behavior

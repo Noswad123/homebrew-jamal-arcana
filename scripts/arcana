@@ -70,6 +70,7 @@ def usage
                 Update/reinstall arcana itself, then use the new version next run
       doctor    Check tools.yaml against Formula/ and Casks/ and report install state
       list      Print tools from tools.yaml
+      source    Select dev/brew payloads; see arcana source --help
 
     Options:
       --dry-run            Print brew commands without running them
@@ -595,6 +596,22 @@ def command_doctor(data, options)
 
   print_install_state(data, options)
   exit(failures.empty? ? 0 : 1)
+end
+
+if ARGV.first == "source"
+  ARGV.shift
+  begin
+    source_module = [File.join(__dir__, "arcana-source.rb"),
+                     File.expand_path("../share/arcana/arcana-source.rb", __dir__),
+                     File.expand_path("../share/arcana/arcana-source.rb", File.realpath(__dir__))]
+                    .find { |path| File.file?(path) }
+    raise LoadError, "arcana source module not found; reinstall arcana" unless source_module
+    require source_module
+    exit ArcanaSource.run(ARGV)
+  rescue LoadError, SystemCallError, IOError => e
+    warn "arcana source: #{e.message}"
+    exit 1
+  end
 end
 
 command, options = parse_args(ARGV)
