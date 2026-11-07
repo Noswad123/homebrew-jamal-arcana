@@ -147,6 +147,11 @@ module ArcanaDispatch
     raise Error, errors.join("\n") unless errors.empty?
 
     environment = app["environment"].reject { |key, _value| ENV.key?(key) }
+    # Durable integration producers need the public identity, while internal
+    # same-build spawning must continue to use the actual payload executable.
+    if %w[coven numen].include?(id)
+      environment["ARCANA_PUBLIC_#{id.upcase}"] = app["launchers"].fetch(id, app["launchers"].fetch(command))
+    end
     target = app["commands"].fetch(command)
     exec(environment, [target, command], *ARGV)
   rescue Error, SystemCallError, IOError => e

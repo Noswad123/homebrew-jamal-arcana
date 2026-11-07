@@ -840,4 +840,20 @@ class ArcanaSourceTest < Minitest::Test
     success(launch("alpha"))
     assert_no_brew
   end
+
+  %w[coven numen].each do |app|
+    define_method("test_#{app}_producer_receives_public_identity_not_private_target") do
+      @data["formulae"] = [{ "name" => app, "sources" => { "commands" => [app] } }]
+      @data.delete("optional")
+      write_manifest
+      key = "ARCANA_PUBLIC_#{app.upcase}"
+      %w[dev brew].each do |kind|
+        path = kind == "dev" ? File.join(@dev, app, "bin", app) : File.join(@brew, "opt", app, "bin", app)
+        executable(path, "#!#{RbConfig.ruby} --disable=gems\nputs ENV.fetch(#{key.dump})\n")
+        success(select(kind, app))
+        assert_equal File.join(@bin, app), success(launch(app, env: { key => "/stale/inherited/payload" })).strip
+      end
+      assert_no_brew
+    end
+  end
 end

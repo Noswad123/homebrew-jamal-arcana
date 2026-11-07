@@ -295,11 +295,13 @@ make install INSTALL_DIR="$HOME/.local/libexec/arcana-dev/wisp/bin"
 make install INSTALL_DIR="$HOME/.local/libexec/arcana-dev/djinn/bin"
 ```
 
-Existing upstream installers may still default to `~/.local/bin`. Do not run
-those defaults after adopting Arcana launchers: they could replace the launcher.
-Installer-default migrations and automated adoption are not part of this first
-increment. Resource-bearing apps such as Coven also need their full resource
-layout; merely symlinking its script into a payload `bin` is not sufficient.
+Coordinated source-checkout changes move the suite's current dev installer
+defaults into these isolated destinations. Published or older checkouts can still
+default to `~/.local/bin`: inspect them before installing, since they could replace
+the launcher. Explicit destination overrides remain supported. Automated legacy
+adoption is not part of the public `source use` command. Resource-bearing apps
+such as Coven need their full resource layout; merely symlinking its script into
+a payload `bin` is not sufficient.
 
 Shell PATH must put the managed launcher directory ahead of Cargo/Homebrew and
 other payload directories. GUI shortcuts should invoke the absolute public
@@ -310,8 +312,12 @@ Existing generated configs are **not rewritten**. In particular, Numen's Wisp
 action can still contain the executable captured when it was generated, and
 Coven callbacks can contain implementation-specific paths. Migrate durable
 actions to the public launcher after checking their arguments and socket intent.
-Producer-side fixes are a separate follow-up; internal same-build spawning and
-session-bound binary/socket references must retain their affinity.
+The dispatcher supplies app-specific `ARCANA_PUBLIC_COVEN` and
+`ARCANA_PUBLIC_NUMEN` identities. Updated producer checkouts consume those hints;
+Numen also supports an explicit `wisp-action --executable ABS` override. Older
+installed payloads do not gain this behavior merely by changing selection and
+must be refreshed before relying on it. Internal same-build spawning and
+session-bound binary/socket references retain their implementation affinity.
 
 Selection publication is atomic, but initial launcher provisioning spans multiple
 directories and is not a filesystem-wide transaction. Ordinary publication errors
