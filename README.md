@@ -388,14 +388,14 @@ ruby test/arcana_test.rb
 
 `mw` now builds the Rust CLI from workspace package `crates/mw` with Homebrew's
 locked Cargo arguments. The default source is the immutable upstream commit
-`4745d03ac750c45ae52f63b736620fdc617b0541`, verified by its archive SHA256, rather
+`264210a6af3bbfbddcfc9779b5da2ee35ee47274`, verified by its archive SHA256, rather
 than mutable `main` or the old Go `v0.1.3` source. The source requires Rust 1.89+
 and bundles SQLite; the formula supplies Rust as a build dependency.
 
-The Homebrew package is **`0.1.3_1`**: `0.1.3` preserves the previous package
-baseline, while `revision 1` makes Homebrew recognize the Rust migration as an
-upgrade. This does **not** claim an upstream Rust `v0.1.3` release. The pinned
-Rust crate currently reports **`mw 0.1.0`**, independently of Homebrew's package
+The Homebrew package is **`0.1.3_2`**: `0.1.3` preserves the previous package
+baseline, while `revision 2` upgrades the older Rust migration snapshot to one
+with task-safety-v1. This does **not** claim an upstream Rust `v0.1.3` release.
+The pinned Rust crate currently reports **`mw 0.1.0`**, independently of Homebrew's package
 version. Its help identifies it as the Rust port.
 
 `mw` intentionally does not use `reinstall_on_update`: rebuilding an immutable
@@ -418,15 +418,25 @@ replacements. No silent fallback to the old Go binary is provided. Review other
 existing automation against the Rust CLI help before opting into this preview.
 
 **API compatibility is separate from installation.** This commit supports
-`mw config json` and schema JSON discovery, but it does **not** implement
-`mw todos snapshot --json` or the task-safety-v1 mutation protocol expected by
-the newest editor/Waybar integrations. A function named `todos_snapshot_command`
-only prints terminal progress bars; it is not that JSON endpoint. The package
-test verifies the APIs actually present without claiming full integration
-compatibility. Those integrations must remain unavailable/fail closed until the
-corresponding upstream engine changes are available. Do not substitute a
-DB-initializing query or automatic sync as a workaround. Installing the CLI also
-does not copy or initialize your notes.
+`mw config json`, schema JSON discovery, `mw todos snapshot --json`, and the
+task-safety-v1 mutation protocol. The package test checks the snapshot JSON
+endpoint against empty fixture notes and verifies that `mw todos sync --help`
+advertises `--require-task-safety-v1`, without running sync or initializing a
+database. This verifies the required capabilities, not every integration workflow.
+Keep the safety flag in editor invocations: it makes older engines fail closed.
+Installing the CLI does not copy or initialize your notes.
+
+After the updated formula is published, upgrade **only MindWeaver** and verify
+the same launcher used by editor integrations:
+
+```bash
+brew update
+brew upgrade noswad123/jamal-arcana/mw
+~/.local/share/arcana/bin/mw todos sync --help
+```
+
+When Arcana selects the Homebrew source, that help must list
+`--require-task-safety-v1`. No suite-wide `arcana update` is required.
 
 Validate this checkout without installing tools or publishing releases:
 

@@ -17,8 +17,8 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 FORMULA = ROOT / "Formula" / "mw.rb"
-PIN = "4745d03ac750c45ae52f63b736620fdc617b0541"
-CHECKSUM = "8290c19c9845e0d1c3020c188fb93b53b4b06217658bbf5682c7b41dd32053bd"
+PIN = "264210a6af3bbfbddcfc9779b5da2ee35ee47274"
+CHECKSUM = "3b934bab672523d8f4b1ef3b95d2445590b66646c9e91ebfbd7be5447a3e6060"
 
 loader = importlib.machinery.SourceFileLoader("arcana_release_test", str(ROOT / "scripts" / "release"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -33,10 +33,23 @@ class MwPackagingTests(unittest.TestCase):
         self.assertIn(f'url "https://github.com/Noswad123/mind-weaver/archive/{PIN}.tar.gz"', text)
         self.assertIn(f'sha256 "{CHECKSUM}"', text)
         self.assertRegex(text, r'(?m)^  version "0\.1\.3"$')
-        self.assertRegex(text, r'(?m)^  revision 1$')
+        self.assertRegex(text, r'(?m)^  revision 2$')
         self.assertRegex(text, r'depends_on "rust"\s*=>\s*:build')
         self.assertRegex(text, r'system "cargo", "install", \*std_cargo_args\(path:\s*["\x27]crates/mw["\x27]\)')
         self.assertNotRegex(text, r'depends_on "go"|system "go"|std_go_args|ldflags')
+        self.assertIn(PIN, (ROOT / "README.md").read_text())
+
+    def test_formula_smoke_checks_task_safety_without_syncing(self):
+        text = FORMULA.read_text()
+        smoke = text.split("  test do\n", 1)[1]
+        self.assertIn('assert_match "--require-task-safety-v1", shell_output("#{bin}/mw todos sync --help")', smoke)
+        self.assertIn('shell_output("#{bin}/mw todos snapshot --json")', smoke)
+        self.assertIn('assert_equal "1", snapshot.fetch("schemaVersion")', smoke)
+        self.assertIn('assert_equal "saved-markdown", snapshot.fetch("source")', smoke)
+        self.assertIn('assert_equal [], snapshot.fetch("items")', smoke)
+        self.assertIn('assert_empty (testpath/"notes").children', smoke)
+        self.assertIn('ENV["COMMANDS_DB_PATH"] = testpath/"must-not-create/commands.db"', smoke)
+        self.assertNotIn('shell_output("#{bin}/mw todos sync --require-task-safety-v1")', smoke)
 
     def test_release_rewrite_resets_packaging_revision(self):
         original = FORMULA.read_text()
@@ -77,6 +90,8 @@ class MwPackagingTests(unittest.TestCase):
             self.assertIn("mw sync", text)
             self.assertIn("mw todos snapshot --json", text)
             self.assertIn("task-safety-v1", text)
+            self.assertIn("--require-task-safety-v1", text)
+            self.assertNotIn("task-safety-v1 are also not implemented", text)
 
     def test_release_rewrite_dry_run_preserves_bytes(self):
         original = FORMULA.read_bytes()
