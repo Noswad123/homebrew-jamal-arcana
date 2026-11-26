@@ -17,8 +17,8 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 FORMULA = ROOT / "Formula" / "mw.rb"
-PIN = "264210a6af3bbfbddcfc9779b5da2ee35ee47274"
-CHECKSUM = "3b934bab672523d8f4b1ef3b95d2445590b66646c9e91ebfbd7be5447a3e6060"
+PIN = "bd5c44065058ea73d3ca9886c4c7bb28c910e7b5"
+CHECKSUM = "0f47f6d884441b992c48394cffded844359a3813a0dd12e002fa781c45df87d6"
 
 loader = importlib.machinery.SourceFileLoader("arcana_release_test", str(ROOT / "scripts" / "release"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -33,13 +33,13 @@ class MwPackagingTests(unittest.TestCase):
         self.assertIn(f'url "https://github.com/Noswad123/mind-weaver/archive/{PIN}.tar.gz"', text)
         self.assertIn(f'sha256 "{CHECKSUM}"', text)
         self.assertRegex(text, r'(?m)^  version "0\.1\.3"$')
-        self.assertRegex(text, r'(?m)^  revision 2$')
+        self.assertRegex(text, r'(?m)^  revision 3$')
         self.assertRegex(text, r'depends_on "rust"\s*=>\s*:build')
         self.assertRegex(text, r'system "cargo", "install", \*std_cargo_args\(path:\s*["\x27]crates/mw["\x27]\)')
         self.assertNotRegex(text, r'depends_on "go"|system "go"|std_go_args|ldflags')
         self.assertIn(PIN, (ROOT / "README.md").read_text())
 
-    def test_formula_smoke_checks_task_safety_without_syncing(self):
+    def test_formula_smoke_checks_task_safety_in_isolated_fixtures(self):
         text = FORMULA.read_text()
         smoke = text.split("  test do\n", 1)[1]
         self.assertIn('assert_match "--require-task-safety-v1", shell_output("#{bin}/mw todos sync --help")', smoke)
@@ -49,7 +49,21 @@ class MwPackagingTests(unittest.TestCase):
         self.assertIn('assert_equal [], snapshot.fetch("items")', smoke)
         self.assertIn('assert_empty (testpath/"notes").children', smoke)
         self.assertIn('ENV["COMMANDS_DB_PATH"] = testpath/"must-not-create/commands.db"', smoke)
-        self.assertNotIn('shell_output("#{bin}/mw todos sync --require-task-safety-v1")', smoke)
+        self.assertLess(smoke.index('ENV["MW_CONFIG"]'),
+                        smoke.index('shell_output("#{bin}/mw todos sync --require-task-safety-v1")'))
+        self.assertIn('shell_output("#{bin}/mw todos dashboard plan --json")', smoke)
+        self.assertIn('assert_equal "dashboard-format-plan", plan.fetch("kind")', smoke)
+        self.assertIn('refute_match "<!-- mw-dashboard", dashboard.read', smoke)
+        self.assertIn('JSON.parse((testpath/"notes/.dashboard.md.mw.json").read)', smoke)
+        self.assertIn('assert_match "- [x] Package test task", source.read', smoke)
+
+    def test_clean_dashboard_caveats_preserve_explicit_conversion_boundary(self):
+        for path in (FORMULA, ROOT / "README.md"):
+            text = path.read_text()
+            self.assertIn("mw todos dashboard plan --json", text)
+            self.assertIn("sidecar", text)
+            self.assertIn("V2", text)
+            self.assertIn("not converted automatically", text)
 
     def test_release_rewrite_resets_packaging_revision(self):
         original = FORMULA.read_text()

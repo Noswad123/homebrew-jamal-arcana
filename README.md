@@ -388,13 +388,13 @@ ruby test/arcana_test.rb
 
 `mw` now builds the Rust CLI from workspace package `crates/mw` with Homebrew's
 locked Cargo arguments. The default source is the immutable upstream commit
-`264210a6af3bbfbddcfc9779b5da2ee35ee47274`, verified by its archive SHA256, rather
+`bd5c44065058ea73d3ca9886c4c7bb28c910e7b5`, verified by its archive SHA256, rather
 than mutable `main` or the old Go `v0.1.3` source. The source requires Rust 1.89+
 and bundles SQLite; the formula supplies Rust as a build dependency.
 
-The Homebrew package is **`0.1.3_2`**: `0.1.3` preserves the previous package
-baseline, while `revision 2` upgrades the older Rust migration snapshot to one
-with task-safety-v1. This does **not** claim an upstream Rust `v0.1.3` release.
+The Homebrew package is **`0.1.3_3`**: `0.1.3` preserves the previous package
+baseline, while `revision 3` adds clean dashboard/sidecar support and archive V2
+on top of task-safety-v1. This does **not** claim an upstream Rust `v0.1.3` release.
 The pinned Rust crate currently reports **`mw 0.1.0`**, independently of Homebrew's package
 version. Its help identifies it as the Rust port.
 
@@ -420,11 +420,23 @@ existing automation against the Rust CLI help before opting into this preview.
 **API compatibility is separate from installation.** This commit supports
 `mw config json`, schema JSON discovery, `mw todos snapshot --json`, and the
 task-safety-v1 mutation protocol. The package test checks the snapshot JSON
-endpoint against empty fixture notes and verifies that `mw todos sync --help`
-advertises `--require-task-safety-v1`, without running sync or initializing a
-database. This verifies the required capabilities, not every integration workflow.
+endpoint against empty fixture notes, previews the clean dashboard format without
+writes, then creates and checks a fixture-only dashboard/sidecar pair and exercises
+checkbox writeback. All paths point into the isolated test directory; it does not
+read user notes or initialize a database. This verifies the required capabilities,
+not every integration workflow.
 Keep the safety flag in editor invocations: it makes older engines fail closed.
 Installing the CLI does not copy or initialize your notes.
+
+**Existing inline dashboards are not converted automatically.** New dashboards
+use readable Markdown plus an adjacent `.FILENAME.mw.json` sidecar. Track and back
+up the pair together; do not delete the sidecar or the reserved generation field.
+Preview existing-dashboard conversion with `mw todos dashboard plan --json`.
+Review pending checkbox intent and the plan's external-V1-archive policy before
+explicitly committing a conversion; installation does not authorize that step.
+Clean-dashboard archive operations use V2 and require compatible editor adapters
+and a separate V2 ledger rather than appending to frozen V1 history. See upstream
+`docs/dashboard-sidecar.md` for conversion, review confirmation, and recovery.
 
 After the updated formula is published, upgrade **only MindWeaver** and verify
 the same launcher used by editor integrations:
@@ -433,10 +445,12 @@ the same launcher used by editor integrations:
 brew update
 brew upgrade noswad123/jamal-arcana/mw
 ~/.local/share/arcana/bin/mw todos sync --help
+~/.local/share/arcana/bin/mw todos dashboard --help
 ```
 
 When Arcana selects the Homebrew source, that help must list
-`--require-task-safety-v1`. No suite-wide `arcana update` is required.
+`--require-task-safety-v1`, and dashboard help must list `plan`, `commit`, and
+`recover`. No suite-wide `arcana update` is required.
 
 Validate this checkout without installing tools or publishing releases:
 

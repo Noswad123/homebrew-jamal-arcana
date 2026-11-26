@@ -3,11 +3,11 @@ class Mw < Formula
   homepage "https://github.com/Noswad123/mind-weaver"
   # Package the Rust migration without inventing an upstream release tag. Keep
   # the previous package baseline and increment revision for newer snapshots.
-  url "https://github.com/Noswad123/mind-weaver/archive/264210a6af3bbfbddcfc9779b5da2ee35ee47274.tar.gz"
+  url "https://github.com/Noswad123/mind-weaver/archive/bd5c44065058ea73d3ca9886c4c7bb28c910e7b5.tar.gz"
   version "0.1.3"
-  sha256 "3b934bab672523d8f4b1ef3b95d2445590b66646c9e91ebfbd7be5447a3e6060"
+  sha256 "0f47f6d884441b992c48394cffded844359a3813a0dd12e002fa781c45df87d6"
   license "MIT"
-  revision 2
+  revision 3
   head "https://github.com/Noswad123/mind-weaver.git", branch: "main"
 
   depends_on "rust" => :build
@@ -21,7 +21,7 @@ class Mw < Formula
   def caveats
     <<~EOS
       This package replaces the Go CLI with a pinned Rust migration preview.
-      Homebrew package 0.1.3_2 reports upstream Rust CLI version 0.1.0.
+      Homebrew package 0.1.3_3 reports upstream Rust CLI version 0.1.0.
 
       Compatibility is incomplete: Hive Sync (`mw sync`, including remote
       push/pull and token/conflict workflows) is not supported by this Rust
@@ -30,6 +30,12 @@ class Mw < Formula
 
       This snapshot supports `mw todos snapshot --json` and task-safety-v1,
       including `mw todos sync --require-task-safety-v1` for editor integrations.
+      New dashboards use readable Markdown and an adjacent .FILENAME.mw.json
+      sidecar; track and back up both files together. Existing inline dashboards
+      are not converted automatically. Preview conversion with
+      `mw todos dashboard plan --json` and review its archive policy before commit.
+      Clean-dashboard archive operations use V2; update editor adapters and use
+      a separate V2 ledger rather than appending to V1 history.
       No notes/database migration or legacy-Go fallback is run automatically.
     EOS
   end
@@ -38,7 +44,7 @@ class Mw < Formula
     require "json"
 
     assert_match "MindWeaver Rust port", shell_output("#{bin}/mw --help")
-    # Cargo's version is currently 0.1.0, independent of Homebrew's 0.1.3_2
+    # Cargo's version is currently 0.1.0, independent of Homebrew's 0.1.3_3
     # migration baseline. Do not inject a fake upstream release version.
     cli_version = shell_output("#{bin}/mw version --short").strip
     assert_match(/\A\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\z/, cli_version)
@@ -82,6 +88,43 @@ class Mw < Formula
     assert_equal ENV.fetch("DASHBOARD_PATH"), snapshot.fetch("dashboardPath")
     assert_equal [], snapshot.fetch("items")
     assert_empty (testpath/"notes").children
+    refute_path_exists testpath/"must-not-create"
+
+    plan = JSON.parse(shell_output("#{bin}/mw todos dashboard plan --json"))
+    assert_equal "1", plan.fetch("schemaVersion")
+    assert_equal "dashboard-format-plan", plan.fetch("kind")
+    assert_match "mw_dashboard_generation:", plan.fetch("markdown")
+    refute_match "<!-- mw-dashboard", plan.fetch("markdown")
+    assert_equal "dashboard-writeback", JSON.parse(plan.fetch("manifest")).fetch("kind")
+    assert_empty (testpath/"notes").children
+
+    # Exercise the new default and checked writeback only inside these fixtures.
+    source = testpath/"notes/source.md"
+    source.write <<~MARKDOWN
+      ---
+      id: formula-test
+      domains: [task]
+      task_active: true
+      task_scope: project
+      ---
+      # Package test
+      ## Todo
+      ### Do Now
+      - [ ] Package test task
+      ### Inbox
+      ### Blocked
+    MARKDOWN
+    shell_output("#{bin}/mw todos sync --require-task-safety-v1")
+    dashboard = testpath/"notes/dashboard.md"
+    assert_match "- [ ] Package test task [[formula-test]]", dashboard.read
+    assert_match(/mw_dashboard_generation: "[0-9a-f]{32}"/, dashboard.read)
+    refute_match "<!-- mw-dashboard", dashboard.read
+    manifest = JSON.parse((testpath/"notes/.dashboard.md.mw.json").read)
+    assert_equal "1", manifest.fetch("schemaVersion")
+    assert_equal "dashboard-writeback", manifest.fetch("kind")
+    dashboard.write dashboard.read.sub("- [ ] Package test task", "- [x] Package test task")
+    shell_output("#{bin}/mw todos sync --require-task-safety-v1")
+    assert_match "- [x] Package test task", source.read
     refute_path_exists testpath/"must-not-create"
   end
 end
